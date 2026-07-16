@@ -12,28 +12,37 @@ from pathlib import Path
 class WelcomePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        # 尝试获取数据目录，如果失败则回退到当前目录
         try:
             from astrbot.api.star import StarTools
             self.data_dir = StarTools.get_data_dir() / "welcome_group"
         except ImportError:
             self.data_dir = Path(os.getcwd()) / "data" / "welcome_group"
-        
+
         if not self.data_dir.exists():
             self.data_dir.mkdir(parents=True, exist_ok=True)
-            
+
         self.config_path = self.data_dir / "config.json"
         self.config = self.load_config()
 
-    def load_config(self):
-        default_config = {
+    def _get_default_config(self):
+        return {
             "default_message": "欢迎 {at} 加入本群！当前时间：{time}",
+            "default_leave_message": "{user_id} 离开了本群。",
+            "default_kick_message": "{user_id} 被移出了本群。",
             "groups": {}
         }
+
+    def load_config(self):
+        default_config = self._get_default_config()
         if self.config_path.exists():
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    saved = json.load(f)
+                # 兼容旧版配置文件：补充缺失的默认字段
+                for key, value in default_config.items():
+                    if key not in saved:
+                        saved[key] = value
+                return saved
             except Exception as e:
                 logger.error(f"加载配置文件失败: {e}")
                 return default_config
@@ -46,153 +55,134 @@ class WelcomePlugin(Star):
         except Exception as e:
             logger.error(f"保存配置文件失败: {e}")
 
-    # 监听事件 - 修改这里
+    # ==================== 入群欢迎 ====================
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_group_increase(self, event: AstrMessageEvent):
-        """统一处理逻辑"""
+        """处理新人入群事件"""
         try:
-            # 兼容不同类型的 event 对象获取 raw_message
-            raw = None
-            if hasattr(event, 'raw_message'):
-                raw = event.raw_message
-            elif hasattr(event, 'message_obj') and hasattr(event.message_obj, 'raw_message'):
-                raw = event.message_obj.raw_message
-            
-            # 调试日志：打印事件类型，帮助用户排查
-            if raw and isinstance(raw, dict):
-                post_type = raw.get("post_type")
-                notice_type = raw.get("notice_type")
-                # 仅在是 notice 事件时打印日志，避免刷屏
-                if post_type == "notice":
-                    logger.debug(f"WelcomePlugin received notice: {notice_type}")
-            
-            # 检查是否为 notice 事件且为 group_increase
+            raw = self._get_raw_message(event)
             if not isinstance(raw, dict):
                 return None
-            
+
             if raw.get("post_type") != "notice" or raw.get("notice_type") != "group_increase":
                 return None
 
             group_id = str(raw.get("group_id"))
             user_id = raw.get("user_id")
-            
-            # 忽略机器人自己入群（可选）
+
             if str(user_id) == str(raw.get("self_id")):
                 return None
 
-            # 检查该群是否配置了欢迎语
             group_config = self.config["groups"].get(group_id)
             if not group_config or not group_config.get("enabled", False):
                 return None
 
             welcome_template = group_config.get("message", self.config["default_message"])
-            
-            # 解析时间
-            # OneBot 事件通常包含 time 字段 (Unix 时间戳)
-            event_time = raw.get("time", time.time())
-            try:
-                time_str = datetime.fromtimestamp(event_time).strftime("%Y-%m-%d %H:%M:%S")
-            except Exception:
-                time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            time_str = self._parse_time(raw)
 
-            message_chain = []
-            
-            # 替换变量
-            # 先处理不需要拆分的变量
-            # {time}, {user_id}, {nickname} (如果能获取到)
-            
-            # 注意：{nickname} 通常无法直接从 notice 获取，除非调用 API。这里暂不支持或仅支持 {user_id}
-            # 如果用户写了 {nickname}，暂时替换为 user_id，或者不做处理
-            processed_template = welcome_template.replace("{time}", time_str).replace("{user_id}", str(user_id))
-            
-            # 构建 OneBot v11 消息段 (字典格式)，用于 bot.send_group_msg
-            message_list = []
-            if "{at}" in processed_template:
-                parts = processed_template.split("{at}")
-                for i, part in enumerate(parts):
-                    if part:
-                        message_list.append({"type": "text", "data": {"text": part}})
-                    if i < len(parts) - 1:
-                        message_list.append({"type": "at", "data": {"qq": str(user_id)}})
-            else:
-                message_list.append({"type": "text", "data": {"text": processed_template}})
+            processed = welcome_template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+            message_list = self._build_onebot_message(processed, user_id)
 
-            logger.info(f"WelcomePlugin: 准备发送欢迎消息给群 {group_id} 用户 {user_id}: {message_list}")
-            
-            # 尝试发送消息
-            # 优先使用 event.bot.send_group_msg (参照 qqadmin 插件的 JoinHandle)
-            # AiocqhttpMessageEvent (event) 通常有 bot 属性 (CQHttp 客户端)
-            bot = getattr(event, "bot", None)
-            if bot and hasattr(bot, "send_group_msg"):
-                try:
-                    await bot.send_group_msg(group_id=int(group_id), message=message_list)
-                    logger.info("WelcomePlugin: 通过 bot.send_group_msg 发送成功")
-                    return None # 已发送，无需返回 chain_result
-                except Exception as e:
-                    logger.error(f"WelcomePlugin: bot.send_group_msg 发送失败: {e}")
+            logger.info(f"WelcomePlugin: 准备发送入群欢迎 -> 群 {group_id} 用户 {user_id}")
 
-            # 如果上述发送失败，不再尝试其他不可靠的方法，直接返回 None
+            await self._send_group_msg(event, group_id, message_list)
             return None
 
         except Exception as e:
-            logger.error(f"WelcomePlugin: 处理事件失败: {e}")
+            logger.error(f"WelcomePlugin: 处理入群事件失败: {e}")
         return None
+
+    # ==================== 退群 / 被踢 ====================
+
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def on_group_decrease(self, event: AstrMessageEvent):
+        """处理退群 / 被踢出群事件"""
+        try:
+            raw = self._get_raw_message(event)
+            if not isinstance(raw, dict):
+                return None
+
+            if raw.get("post_type") != "notice" or raw.get("notice_type") != "group_decrease":
+                return None
+
+            sub_type = raw.get("sub_type", "")
+
+            # 机器人自己被踢，无法发消息，仅记录日志
+            if sub_type == "kick_me":
+                logger.info(f"WelcomePlugin: 机器人被踢出群 {raw.get('group_id')}，操作者: {raw.get('operator_id')}")
+                return None
+
+            group_id = str(raw.get("group_id"))
+            user_id = raw.get("user_id")
+            group_config = self.config["groups"].get(group_id, {})
+
+            if sub_type == "leave":
+                if not group_config.get("leave_enabled", False):
+                    return None
+                template = group_config.get("leave_message", self.config["default_leave_message"])
+                log_label = "退群"
+            elif sub_type == "kick":
+                if not group_config.get("kick_enabled", False):
+                    return None
+                template = group_config.get("kick_message", self.config["default_kick_message"])
+                log_label = "被踢"
+            else:
+                return None
+
+            time_str = self._parse_time(raw)
+            processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+            message_list = self._build_onebot_message(processed, user_id)
+
+            logger.info(f"WelcomePlugin: 准备发送{log_label}通知 -> 群 {group_id} 用户 {user_id}")
+
+            await self._send_group_msg(event, group_id, message_list)
+            return None
+
+        except Exception as e:
+            logger.error(f"WelcomePlugin: 处理退群/被踢事件失败: {e}")
+        return None
+
+    # ==================== 指令入口 ====================
 
     @filter.command_group("welcome")
     def welcome_group_cmd(self):
-        """群欢迎插件管理"""
+        """群欢迎/退群/踢人通知插件管理"""
         pass
+
+    # ---- 入群欢迎指令 ----
 
     @welcome_group_cmd.command("set")
     async def set_welcome(self, event: AstrMessageEvent, message: str):
-        """设置欢迎语。支持变量: {at}, {user_id}, {time}。例如: /welcome set 欢迎 {at} 于 {time} 加入！"""
-        # AstrBot 默认只会解析第一个参数到 message
-        # 如果消息包含空格，后面的内容会被忽略，所以需要手动获取完整内容
-        # 假设指令是 /welcome set xxx yyy zzz
-        # message 可能只是 xxx
-        
-        # 获取除去指令部分后的原始内容
-        full_text = event.message_str
-        # 简单的切分逻辑：找到 "set" 之后的内容
-        # 注意：这依赖于指令的具体形式，如果用户用了别名可能会有问题
-        # 更稳妥的方式是：
-        parts = full_text.split()
-        if len(parts) >= 3: # /welcome set content...
-             # 重新拼接第三个参数及之后的所有内容
-             message = " ".join(parts[2:])
-        
+        """设置入群欢迎语。支持变量: {at}, {user_id}, {time}。例如: /welcome set 欢迎 {at} 于 {time} 加入！"""
         group_id = event.message_obj.group_id
         if not group_id:
             yield event.plain_result("请在群聊中使用此指令。")
             return
 
-        if group_id not in self.config["groups"]:
-            self.config["groups"][group_id] = {}
-            
+        message = self._get_full_message(event, "set")
+        self._ensure_group(group_id)
         self.config["groups"][group_id]["enabled"] = True
         self.config["groups"][group_id]["message"] = message
         self.save_config()
-        
-        yield event.plain_result(f"已设置本群欢迎语为：\n{message}")
+        yield event.plain_result(f"已设置本群入群欢迎语为：\n{message}")
 
     @welcome_group_cmd.command("on")
     async def enable_welcome(self, event: AstrMessageEvent):
-        """开启当前群的欢迎功能"""
+        """开启当前群的入群欢迎功能"""
         group_id = event.message_obj.group_id
         if not group_id:
             yield event.plain_result("请在群聊中使用此指令。")
             return
 
-        if group_id not in self.config["groups"]:
-            self.config["groups"][group_id] = {"message": self.config["default_message"]}
-        
+        self._ensure_group(group_id)
         self.config["groups"][group_id]["enabled"] = True
         self.save_config()
-        yield event.plain_result("本群欢迎功能已开启。")
+        yield event.plain_result("本群入群欢迎功能已开启。")
 
     @welcome_group_cmd.command("off")
     async def disable_welcome(self, event: AstrMessageEvent):
-        """关闭当前群的欢迎功能"""
+        """关闭当前群的入群欢迎功能"""
         group_id = event.message_obj.group_id
         if not group_id:
             yield event.plain_result("请在群聊中使用此指令。")
@@ -201,35 +191,255 @@ class WelcomePlugin(Star):
         if group_id in self.config["groups"]:
             self.config["groups"][group_id]["enabled"] = False
             self.save_config()
-            
-        yield event.plain_result("本群欢迎功能已关闭。")
+        yield event.plain_result("本群入群欢迎功能已关闭。")
 
     @welcome_group_cmd.command("test")
     async def test_welcome(self, event: AstrMessageEvent):
-        """测试发送当前群的欢迎语"""
+        """测试发送当前群的入群欢迎语（独立消息，无 reply）"""
         group_id = event.message_obj.group_id
         if not group_id:
             yield event.plain_result("请在群聊中使用此指令。")
             return
 
-        # 模拟一个 welcome 消息
         group_config = self.config["groups"].get(group_id, {})
-        welcome_template = group_config.get("message", self.config["default_message"])
-        
-        message_chain = []
+        template = group_config.get("message", self.config["default_message"])
         user_id = event.get_sender_id()
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        processed_template = welcome_template.replace("{time}", time_str).replace("{user_id}", str(user_id))
-        
-        if "{at}" in processed_template:
-            parts = processed_template.split("{at}")
+
+        processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+        message_list = self._build_onebot_message(processed, user_id)
+
+        sent = await self._try_send_via_bot(event, group_id, message_list)
+        if not sent:
+            yield event.plain_result("无法发送测试消息，请检查 bot 连接或日志。")
+
+    # ---- 退群通知指令 ----
+
+    @welcome_group_cmd.command_group("leave")
+    def leave_cmd(self):
+        """退群通知管理"""
+        pass
+
+    @leave_cmd.command("set")
+    async def set_leave(self, event: AstrMessageEvent, message: str):
+        """设置退群通知语。支持变量: {at}, {user_id}, {time}。例如: /welcome leave set {user_id} 离开了本群"""
+        group_id = event.message_obj.group_id
+        if not group_id:
+            yield event.plain_result("请在群聊中使用此指令。")
+            return
+
+        message = self._get_full_message(event, "set")
+        self._ensure_group(group_id)
+        self.config["groups"][group_id]["leave_enabled"] = True
+        self.config["groups"][group_id]["leave_message"] = message
+        self.save_config()
+        yield event.plain_result(f"已设置本群退群通知语为：\n{message}")
+
+    @leave_cmd.command("on")
+    async def enable_leave(self, event: AstrMessageEvent):
+        """开启当前群的退群通知"""
+        group_id = event.message_obj.group_id
+        if not group_id:
+            yield event.plain_result("请在群聊中使用此指令。")
+            return
+
+        self._ensure_group(group_id)
+        self.config["groups"][group_id]["leave_enabled"] = True
+        self.save_config()
+        yield event.plain_result("本群退群通知已开启。")
+
+    @leave_cmd.command("off")
+    async def disable_leave(self, event: AstrMessageEvent):
+        """关闭当前群的退群通知"""
+        group_id = event.message_obj.group_id
+        if not group_id:
+            yield event.plain_result("请在群聊中使用此指令。")
+            return
+
+        if group_id in self.config["groups"]:
+            self.config["groups"][group_id]["leave_enabled"] = False
+            self.save_config()
+        yield event.plain_result("本群退群通知已关闭。")
+
+    @leave_cmd.command("test")
+    async def test_leave(self, event: AstrMessageEvent):
+        """测试发送当前群的退群通知（独立消息，无 reply）"""
+        group_id = event.message_obj.group_id
+        if not group_id:
+            yield event.plain_result("请在群聊中使用此指令。")
+            return
+
+        group_config = self.config["groups"].get(group_id, {})
+        template = group_config.get("leave_message", self.config["default_leave_message"])
+        user_id = event.get_sender_id()
+        time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+        message_list = self._build_onebot_message(processed, user_id)
+
+        sent = await self._try_send_via_bot(event, group_id, message_list)
+        if not sent:
+            yield event.plain_result("无法发送测试消息，请检查 bot 连接或日志。")
+
+    # ---- 被踢通知指令 ----
+
+    @welcome_group_cmd.command_group("kick")
+    def kick_cmd(self):
+        """被踢通知管理"""
+        pass
+
+    @kick_cmd.command("set")
+    async def set_kick(self, event: AstrMessageEvent, message: str):
+        """设置被踢通知语。支持变量: {at}, {user_id}, {time}。例如: /welcome kick set {user_id} 被移出了本群"""
+        group_id = event.message_obj.group_id
+        if not group_id:
+            yield event.plain_result("请在群聊中使用此指令。")
+            return
+
+        message = self._get_full_message(event, "set")
+        self._ensure_group(group_id)
+        self.config["groups"][group_id]["kick_enabled"] = True
+        self.config["groups"][group_id]["kick_message"] = message
+        self.save_config()
+        yield event.plain_result(f"已设置本群被踢通知语为：\n{message}")
+
+    @kick_cmd.command("on")
+    async def enable_kick(self, event: AstrMessageEvent):
+        """开启当前群的被踢通知"""
+        group_id = event.message_obj.group_id
+        if not group_id:
+            yield event.plain_result("请在群聊中使用此指令。")
+            return
+
+        self._ensure_group(group_id)
+        self.config["groups"][group_id]["kick_enabled"] = True
+        self.save_config()
+        yield event.plain_result("本群被踢通知已开启。")
+
+    @kick_cmd.command("off")
+    async def disable_kick(self, event: AstrMessageEvent):
+        """关闭当前群的被踢通知"""
+        group_id = event.message_obj.group_id
+        if not group_id:
+            yield event.plain_result("请在群聊中使用此指令。")
+            return
+
+        if group_id in self.config["groups"]:
+            self.config["groups"][group_id]["kick_enabled"] = False
+            self.save_config()
+        yield event.plain_result("本群被踢通知已关闭。")
+
+    @kick_cmd.command("test")
+    async def test_kick(self, event: AstrMessageEvent):
+        """测试发送当前群的被踢通知（独立消息，无 reply）"""
+        group_id = event.message_obj.group_id
+        if not group_id:
+            yield event.plain_result("请在群聊中使用此指令。")
+            return
+
+        group_config = self.config["groups"].get(group_id, {})
+        template = group_config.get("kick_message", self.config["default_kick_message"])
+        user_id = event.get_sender_id()
+        time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+        message_list = self._build_onebot_message(processed, user_id)
+
+        sent = await self._try_send_via_bot(event, group_id, message_list)
+        if not sent:
+            yield event.plain_result("无法发送测试消息，请检查 bot 连接或日志。")
+
+    # ==================== 工具方法 ====================
+
+    @staticmethod
+    def _get_raw_message(event: AstrMessageEvent):
+        """兼容不同 event 类型获取 raw_message"""
+        if hasattr(event, 'raw_message'):
+            return event.raw_message
+        elif hasattr(event, 'message_obj') and hasattr(event.message_obj, 'raw_message'):
+            return event.message_obj.raw_message
+        return None
+
+    @staticmethod
+    def _parse_time(raw: dict) -> str:
+        """将 OneBot 事件中的 time 字段转为格式化字符串"""
+        event_time = raw.get("time", time.time())
+        try:
+            return datetime.fromtimestamp(event_time).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _ensure_group(self, group_id: str):
+        """确保群配置条目存在"""
+        if group_id not in self.config["groups"]:
+            self.config["groups"][group_id] = {}
+
+    @staticmethod
+    def _build_onebot_message(template: str, user_id) -> list:
+        """将模板字符串转为 OneBot v11 消息段列表"""
+        message_list = []
+        if "{at}" in template:
+            parts = template.split("{at}")
             for i, part in enumerate(parts):
                 if part:
-                    message_chain.append(Plain(part))
+                    message_list.append({"type": "text", "data": {"text": part}})
                 if i < len(parts) - 1:
-                    message_chain.append(At(qq=user_id))
+                    message_list.append({"type": "at", "data": {"qq": str(user_id)}})
         else:
-            message_chain.append(Plain(processed_template))
-            
-        yield event.chain_result(message_chain)
+            message_list.append({"type": "text", "data": {"text": template}})
+        return message_list
+
+    @staticmethod
+    async def _send_group_msg(event: AstrMessageEvent, group_id: str, message_list: list):
+        """通过 bot.send_group_msg 发送群消息（绕过管道，不带 reply）"""
+        bot = getattr(event, "bot", None)
+        if bot and hasattr(bot, "send_group_msg"):
+            try:
+                await bot.send_group_msg(group_id=int(group_id), message=message_list)
+                logger.info(f"WelcomePlugin: bot.send_group_msg 发送成功 -> 群 {group_id}")
+            except Exception as e:
+                logger.error(f"WelcomePlugin: bot.send_group_msg 发送失败: {e}")
+        else:
+            logger.warning("WelcomePlugin: 无法获取 bot 对象")
+
+    @staticmethod
+    async def _try_send_via_bot(event: AstrMessageEvent, group_id: str, message_list: list) -> bool:
+        """尝试通过 bot.send_group_msg 发送，成功返回 True，失败/不可用返回 False"""
+        bot = getattr(event, "bot", None)
+        if bot and hasattr(bot, "send_group_msg"):
+            try:
+                await bot.send_group_msg(group_id=int(group_id), message=message_list)
+                logger.info(f"WelcomePlugin: test 发送成功 -> 群 {group_id}")
+                return True
+            except Exception as e:
+                logger.error(f"WelcomePlugin: test 发送失败: {e}")
+        else:
+            logger.warning("WelcomePlugin: test 无法获取 bot 对象")
+        return False
+
+    @staticmethod
+    def _build_fallback_chain(processed: str, user_id) -> list:
+        """构建 AstrBot 格式的回退消息链（用于 chain_result 兜底）"""
+        chain = []
+        if "{at}" in processed:
+            parts = processed.split("{at}")
+            for i, part in enumerate(parts):
+                if part:
+                    chain.append(Plain(part))
+                if i < len(parts) - 1:
+                    chain.append(At(qq=user_id))
+        else:
+            chain.append(Plain(processed))
+        return chain
+
+    @staticmethod
+    def _get_full_message(event: AstrMessageEvent, subcmd: str) -> str:
+        """从原始消息中提取指令参数之后的内容"""
+        full_text = event.message_str
+        parts = full_text.split()
+        # 找到 subcmd 的位置，取其后所有内容
+        try:
+            idx = parts.index(subcmd)
+            return " ".join(parts[idx + 1:])
+        except (ValueError, IndexError):
+            return ""
