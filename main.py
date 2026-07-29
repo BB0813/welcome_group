@@ -63,20 +63,20 @@ class WelcomePlugin(Star):
         try:
             # 直接从 event 获取 raw_message
             raw = self._get_raw_message(event)
-            
+
             # 调试日志 - 查看实际接收到的事件
             if raw:
                 logger.debug(f"WelcomePlugin: 收到事件 raw = {raw}")
-            
+
             if not raw or not isinstance(raw, dict):
                 logger.debug("WelcomePlugin: raw 不是 dict 或为空")
                 return None
 
             post_type = raw.get("post_type")
             notice_type = raw.get("notice_type")
-            
+
             logger.debug(f"WelcomePlugin: post_type={post_type}, notice_type={notice_type}")
-            
+
             if post_type != "notice" or notice_type != "group_increase":
                 return None
 
@@ -100,7 +100,7 @@ class WelcomePlugin(Star):
                 self.config["groups"][group_id]["message"] = self.config["default_message"]
                 self.save_config()
                 group_config = self.config["groups"][group_id]
-            
+
             if not group_config.get("enabled", False):
                 logger.info(f"WelcomePlugin: 群 {group_id} 欢迎功能已关闭")
                 return None
@@ -128,7 +128,7 @@ class WelcomePlugin(Star):
                     logger.info(f"WelcomePlugin: 通过 event.send/reply 发送成功")
                 except Exception as e2:
                     logger.error(f"WelcomePlugin: 通过 event.send/reply 也失败了: {e2}")
-            
+
             return None
 
         except Exception as e:
@@ -191,18 +191,13 @@ class WelcomePlugin(Star):
             logger.error(f"WelcomePlugin: 处理退群/被踢事件失败: {e}")
         return None
 
-    # ==================== 指令入口 ====================
-
-    @filter.command_group("welcome")
-    def welcome_group_cmd(self):
-        """群欢迎/退群/踢人通知插件管理"""
-        pass
+    # ==================== 指令入口（已重写为扁平化指令注册）====================
 
     # ---- 入群欢迎指令 ----
 
-    @welcome_group_cmd.command("set")
-    async def set_welcome(self, event: AstrMessageEvent, message: str):
-        """设置入群欢迎语。支持变量: {at}, {user_id}, {time}。例如: /welcome set 欢迎 {at} 于 {time} 加入！"""
+    @filter.command("welcome set", "设置入群欢迎语。支持变量: {at}, {user_id}, {time}。例如: /welcome set 欢迎 {at} 于 {time} 加入！")
+    async def set_welcome(self, event: AstrMessageEvent):
+        """设置入群欢迎语"""
         group_id = event.message_obj.group_id
         if not group_id:
             yield event.plain_result("请在群聊中使用此指令。")
@@ -212,14 +207,14 @@ class WelcomePlugin(Star):
         if not message:
             yield event.plain_result("请提供欢迎语内容。例如: /welcome set 欢迎 {at} 加入！")
             return
-            
+
         self._ensure_group(group_id)
         self.config["groups"][group_id]["enabled"] = True
         self.config["groups"][group_id]["message"] = message
         self.save_config()
         yield event.plain_result(f"已设置本群入群欢迎语为：\n{message}")
 
-    @welcome_group_cmd.command("on")
+    @filter.command("welcome on", "开启当前群的入群欢迎功能")
     async def enable_welcome(self, event: AstrMessageEvent):
         """开启当前群的入群欢迎功能"""
         group_id = event.message_obj.group_id
@@ -232,7 +227,7 @@ class WelcomePlugin(Star):
         self.save_config()
         yield event.plain_result("本群入群欢迎功能已开启。")
 
-    @welcome_group_cmd.command("off")
+    @filter.command("welcome off", "关闭当前群的入群欢迎功能")
     async def disable_welcome(self, event: AstrMessageEvent):
         """关闭当前群的入群欢迎功能"""
         group_id = event.message_obj.group_id
@@ -245,9 +240,9 @@ class WelcomePlugin(Star):
             self.save_config()
         yield event.plain_result("本群入群欢迎功能已关闭。")
 
-    @welcome_group_cmd.command("test")
+    @filter.command("welcome test", "测试发送当前群的入群欢迎语（独立消息，无 reply）")
     async def test_welcome(self, event: AstrMessageEvent):
-        """测试发送当前群的入群欢迎语（独立消息，无 reply）"""
+        """测试发送当前群的入群欢迎语"""
         group_id = event.message_obj.group_id
         if not group_id:
             yield event.plain_result("请在群聊中使用此指令。")
@@ -267,14 +262,9 @@ class WelcomePlugin(Star):
 
     # ---- 退群通知指令 ----
 
-    @welcome_group_cmd.command_group("leave")
-    def leave_cmd(self):
-        """退群通知管理"""
-        pass
-
-    @leave_cmd.command("set")
-    async def set_leave(self, event: AstrMessageEvent, message: str):
-        """设置退群通知语。支持变量: {at}, {user_id}, {time}。例如: /welcome leave set {user_id} 离开了本群"""
+    @filter.command("welcome leave set", "设置退群通知语。支持变量: {at}, {user_id}, {time}。例如: /welcome leave set {user_id} 离开了本群")
+    async def set_leave(self, event: AstrMessageEvent):
+        """设置退群通知语"""
         group_id = event.message_obj.group_id
         if not group_id:
             yield event.plain_result("请在群聊中使用此指令。")
@@ -284,14 +274,14 @@ class WelcomePlugin(Star):
         if not message:
             yield event.plain_result("请提供退群通知语内容。")
             return
-            
+
         self._ensure_group(group_id)
         self.config["groups"][group_id]["leave_enabled"] = True
         self.config["groups"][group_id]["leave_message"] = message
         self.save_config()
         yield event.plain_result(f"已设置本群退群通知语为：\n{message}")
 
-    @leave_cmd.command("on")
+    @filter.command("welcome leave on", "开启当前群的退群通知")
     async def enable_leave(self, event: AstrMessageEvent):
         """开启当前群的退群通知"""
         group_id = event.message_obj.group_id
@@ -304,7 +294,7 @@ class WelcomePlugin(Star):
         self.save_config()
         yield event.plain_result("本群退群通知已开启。")
 
-    @leave_cmd.command("off")
+    @filter.command("welcome leave off", "关闭当前群的退群通知")
     async def disable_leave(self, event: AstrMessageEvent):
         """关闭当前群的退群通知"""
         group_id = event.message_obj.group_id
@@ -317,9 +307,9 @@ class WelcomePlugin(Star):
             self.save_config()
         yield event.plain_result("本群退群通知已关闭。")
 
-    @leave_cmd.command("test")
+    @filter.command("welcome leave test", "测试发送当前群的退群通知（独立消息，无 reply）")
     async def test_leave(self, event: AstrMessageEvent):
-        """测试发送当前群的退群通知（独立消息，无 reply）"""
+        """测试发送当前群的退群通知"""
         group_id = event.message_obj.group_id
         if not group_id:
             yield event.plain_result("请在群聊中使用此指令。")
@@ -339,14 +329,9 @@ class WelcomePlugin(Star):
 
     # ---- 被踢通知指令 ----
 
-    @welcome_group_cmd.command_group("kick")
-    def kick_cmd(self):
-        """被踢通知管理"""
-        pass
-
-    @kick_cmd.command("set")
-    async def set_kick(self, event: AstrMessageEvent, message: str):
-        """设置被踢通知语。支持变量: {at}, {user_id}, {time}。例如: /welcome kick set {user_id} 被移出了本群"""
+    @filter.command("welcome kick set", "设置被踢通知语。支持变量: {at}, {user_id}, {time}。例如: /welcome kick set {user_id} 被移出了本群")
+    async def set_kick(self, event: AstrMessageEvent):
+        """设置被踢通知语"""
         group_id = event.message_obj.group_id
         if not group_id:
             yield event.plain_result("请在群聊中使用此指令。")
@@ -356,14 +341,14 @@ class WelcomePlugin(Star):
         if not message:
             yield event.plain_result("请提供被踢通知语内容。")
             return
-            
+
         self._ensure_group(group_id)
         self.config["groups"][group_id]["kick_enabled"] = True
         self.config["groups"][group_id]["kick_message"] = message
         self.save_config()
         yield event.plain_result(f"已设置本群被踢通知语为：\n{message}")
 
-    @kick_cmd.command("on")
+    @filter.command("welcome kick on", "开启当前群的被踢通知")
     async def enable_kick(self, event: AstrMessageEvent):
         """开启当前群的被踢通知"""
         group_id = event.message_obj.group_id
@@ -376,7 +361,7 @@ class WelcomePlugin(Star):
         self.save_config()
         yield event.plain_result("本群被踢通知已开启。")
 
-    @kick_cmd.command("off")
+    @filter.command("welcome kick off", "关闭当前群的被踢通知")
     async def disable_kick(self, event: AstrMessageEvent):
         """关闭当前群的被踢通知"""
         group_id = event.message_obj.group_id
@@ -389,9 +374,9 @@ class WelcomePlugin(Star):
             self.save_config()
         yield event.plain_result("本群被踢通知已关闭。")
 
-    @kick_cmd.command("test")
+    @filter.command("welcome kick test", "测试发送当前群的被踢通知（独立消息，无 reply）")
     async def test_kick(self, event: AstrMessageEvent):
-        """测试发送当前群的被踢通知（独立消息，无 reply）"""
+        """测试发送当前群的被踢通知"""
         group_id = event.message_obj.group_id
         if not group_id:
             yield event.plain_result("请在群聊中使用此指令。")
