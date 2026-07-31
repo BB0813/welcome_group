@@ -1,0 +1,27 @@
+{
+    "global_enabled": {
+        "description": "启用全局欢迎语模式",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后，所有未单独配置的群将自动使用下方的全局消息模板",
+        "obvious_hint": true
+    },
+    "global_increase_message": {
+        "description": "全局入群欢迎语",
+        "type": "text",
+        "default": "欢迎 {at} 加入本群！\n当前时间：{time}",
+        "hint": "当新成员加群时发送的消息。支持变量：{at}(@用户), {user_id}(QQ号), {time}(时间)"
+    },
+    "global_leave_message": {
+        "description": "全局退群提示",
+        "type": "text",
+        "default": "{user_id} 离开了本群。",
+        "hint": "当成员主动退群时发送的消息。支持变量：{user_id}, {time}"
+    },
+    "global_kick_message": {
+        "description": "全局被踢提示",
+        "type": "text",
+        "default": "{user_id} 被管理员移出了本群。",
+        "hint": "当成员被移出群聊时发送的消息。支持变量：{user_id}, {time}"
+    }
+}
