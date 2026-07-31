@@ -3,7 +3,6 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.message_components import Plain
 # 引入配置相关模块
-from astrbot.api.config import AstrBotConfig, Option, OptionType
 import json
 import os
 from datetime import datetime
