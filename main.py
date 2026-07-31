@@ -2,7 +2,6 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.message_components import Plain
-# 引入配置相关模块
 import json
 import os
 from datetime import datetime
@@ -17,37 +16,6 @@ from pathlib import Path
 )
 
 class WelcomePlugin(Star):
-    # ==================== 插件配置定义 ====================
-    # 这里的配置会自动显示在 AstrBot 的 Web 配置面板中
-    class PluginConfig(AstrBotConfig):
-        # 1. 是否启用全局欢迎语（及退群通知）
-        global_enabled: bool = Option(
-            "启用全局模式",
-            False,
-            description="开启后，所有未单独配置的群将使用下方的全局消息模板"
-        )
-        # 2. 全局入群欢迎语
-        global_increase_message: str = Option(
-            "全局入群欢迎语",
-            "欢迎 {at} 加入本群！当前时间：{time}",
-            description="当新成员加群时发送。支持变量: {at}(@用户), {user_id}(QQ号), {time}(时间)",
-            type=OptionType.TEXT
-        )
-        # 3. 全局退群提示
-        global_leave_message: str = Option(
-            "全局退群提示",
-            "{user_id} 离开了本群。",
-            description="当成员主动退群时发送。支持变量: {user_id}, {time}",
-            type=OptionType.TEXT
-        )
-        # 4. 全局被踢提示
-        global_kick_message: str = Option(
-            "全局被踢提示",
-            "{user_id} 被移出了本群。",
-            description="当成员被管理员移出时发送。支持变量: {user_id}, {time}",
-            type=OptionType.TEXT
-        )
-
     def __init__(self, context: Context):
         super().__init__(context)
         # 初始化数据目录路径
@@ -63,42 +31,34 @@ class WelcomePlugin(Star):
         self.config_path = self.data_dir / "config.json"
         # 初始化配置文件
         self.config = self.load_config()
-        # 获取插件配置实例 (用于读取 Web 面板的设置)
-        self.astrbot_config = self.get_config()
 
     def _get_default_config(self) -> dict:
         """获取默认配置结构"""
         return {
             "groups": {},
-            # 用于存储插件配置，确保和 Web 面板同步
-            "plugin_config": {}
+            # 直接使用字典存储全局配置
+            "global_enabled": False,
+            "global_increase_message": "欢迎 {at} 加入本群！当前时间：{time}",
+            "global_leave_message": "{user_id} 离开了本群。",
+            "global_kick_message": "{user_id} 被移出了本群。"
         }
 
     def load_config(self) -> dict:
-        """加载配置文件并同步到插件配置对象"""
+        """加载配置文件"""
         default_config = self._get_default_config()
         
         if self.config_path.exists():
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     saved = json.load(f)
-                    # 合并顶层配置
+                    # 合并配置，确保所有必需的键都存在
                     for key, value in default_config.items():
                         if key not in saved:
                             saved[key] = value
                     
-                    # ===== 关键步骤：将 JSON 中的 plugin_config 同步到 self.astrbot_config =====
-                    # 这样即使手动改了 JSON，Web 面板也能显示正确的值
-                    plugin_cfg = saved.get("plugin_config", {})
-                    # 如果 JSON 中有值，则更新内存中的配置对象
-                    if "global_enabled" in plugin_cfg:
-                        self.astrbot_config.global_enabled = plugin_cfg["global_enabled"]
-                    if "global_increase_message" in plugin_cfg:
-                        self.astrbot_config.global_increase_message = plugin_cfg["global_increase_message"]
-                    if "global_leave_message" in plugin_cfg:
-                        self.astrbot_config.global_leave_message = plugin_cfg["global_leave_message"]
-                    if "global_kick_message" in plugin_cfg:
-                        self.astrbot_config.global_kick_message = plugin_cfg["global_kick_message"]
+                    # 确保groups键存在
+                    if "groups" not in saved:
+                        saved["groups"] = {}
                     
                     return saved
             except Exception as e:
@@ -107,17 +67,8 @@ class WelcomePlugin(Star):
         return default_config
 
     def save_config(self):
-        """保存配置到文件（将 Web 配置回写 JSON）"""
+        """保存配置到文件"""
         try:
-            # ===== 关键步骤：将当前的 Web 配置写入 JSON =====
-            # 确保在 Web 面板修改后，数据能持久化
-            self.config["plugin_config"] = {
-                "global_enabled": self.astrbot_config.global_enabled,
-                "global_increase_message": self.astrbot_config.global_increase_message,
-                "global_leave_message": self.astrbot_config.global_leave_message,
-                "global_kick_message": self.astrbot_config.global_kick_message
-            }
-            
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
         except Exception as e:
@@ -210,11 +161,11 @@ class WelcomePlugin(Star):
             
             if not group_config:
                 # 如果群未配置，检查全局开关
-                if self.astrbot_config.global_enabled:
-                    logger.info(f"群 {group_id} 未配置，使用全局入群欢迎语 (配置面板设置)")
-                    welcome_template = self.astrbot_config.global_increase_message
+                if self.config.get("global_enabled", False):
+                    logger.info(f"群 {group_id} 未配置，使用全局入群欢迎语")
+                    welcome_template = self.config.get("global_increase_message", "欢迎 {at} 加入本群！当前时间：{time}")
                 else:
-                    # 如果全局没开，则不做任何事 (或按需求可设为空)
+                    # 如果全局没开，则不做任何事
                     logger.info(f"群 {group_id} 未配置且全局模式未开启，跳过欢迎")
                     return
             else:
@@ -222,7 +173,7 @@ class WelcomePlugin(Star):
                 if not group_config.get("enabled", False):
                     return
                 # 使用群独立配置，如果没填则回退到全局配置
-                welcome_template = group_config.get("message", self.astrbot_config.global_increase_message)
+                welcome_template = group_config.get("message", self.config.get("global_increase_message", "欢迎 {at} 加入本群！当前时间：{time}"))
 
             # 发送消息
             time_str = self._parse_time(raw)
@@ -262,17 +213,16 @@ class WelcomePlugin(Star):
             group_config = self.config["groups"].get(group_id, {})
             template = ""
 
-            # 默认使用插件配置中的全局模板
-            default_leave = self.astrbot_config.global_leave_message
-            default_kick = self.astrbot_config.global_kick_message
+            # 直接从config字典获取全局配置
+            default_leave = self.config.get("global_leave_message", "{user_id} 离开了本群。")
+            default_kick = self.config.get("global_kick_message", "{user_id} 被移出了本群。")
 
             if sub_type == "leave":
                 # 退群逻辑
                 if not group_config.get("leave_enabled", False):
-                    # 如果群没有开启退群通知，则不发送（除非你想全局默认开启，这里假设默认关闭需手动开）
-                    # 如果需要全局默认生效，可以去掉这个判断，或者把 global_enabled 算进去
+                    # 如果群没有开启退群通知，则不发送
                     if not group_config: # 群完全没配置的情况
-                        if self.astrbot_config.global_enabled:
+                        if self.config.get("global_enabled", False):
                             template = default_leave
                         else:
                             return
@@ -286,7 +236,7 @@ class WelcomePlugin(Star):
                 # 被踢逻辑
                 if not group_config.get("kick_enabled", False):
                     if not group_config:
-                        if self.astrbot_config.global_enabled:
+                        if self.config.get("global_enabled", False):
                             template = default_kick
                         else:
                             return
@@ -306,8 +256,6 @@ class WelcomePlugin(Star):
             logger.error(f"处理退群事件时出错: {e}")
 
     # ==================== 指令处理 ====================
-    # 移除了 global 相关的指令设置，改为在插件配置中设置
-    
     @filter.command_group("welcome", "欢迎功能管理")
     def welcome(self):
         pass
@@ -316,7 +264,7 @@ class WelcomePlugin(Star):
     async def set_welcome(self, event: AstrMessageEvent, message: str = ""):
         """
         设置当前群的入群欢迎语
-        不填内容则重置为插件配置中的全局欢迎语
+        不填内容则重置为全局欢迎语
         """
         if not event.message_obj.group_id:
             yield event.plain_result("此指令只能在群聊中使用")
@@ -379,7 +327,8 @@ class WelcomePlugin(Star):
             yield event.plain_result("本群未开启欢迎功能")
             return
 
-        template = group_config.get("message", self.astrbot_config.global_increase_message)
+        # 直接从config字典获取全局配置
+        template = group_config.get("message", self.config.get("global_increase_message", "欢迎 {at} 加入本群！当前时间：{time}"))
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         user_id = event.sender.user_id
         
@@ -392,7 +341,7 @@ class WelcomePlugin(Star):
         else:
             yield event.plain_result("无法发送测试消息")
 
-    # ==================== 新增退群和被踢指令 ====================
+    # ==================== 退群和被踢指令 ====================
     
     @filter.command_group("leave", "退群通知管理")
     def leave(self):
@@ -402,7 +351,7 @@ class WelcomePlugin(Star):
     async def set_leave(self, event: AstrMessageEvent, message: str = ""):
         """
         设置当前群的退群消息
-        不填内容则重置为插件配置中的全局退群消息
+        不填内容则重置为全局退群消息
         """
         if not event.message_obj.group_id:
             yield event.plain_result("此指令只能在群聊中使用")
@@ -459,7 +408,7 @@ class WelcomePlugin(Star):
     async def set_kick(self, event: AstrMessageEvent, message: str = ""):
         """
         设置当前群的被踢消息
-        不填内容则重置为插件配置中的全局被踢消息
+        不填内容则重置为全局被踢消息
         """
         if not event.message_obj.group_id:
             yield event.plain_result("此指令只能在群聊中使用")
