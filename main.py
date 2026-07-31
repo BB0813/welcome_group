@@ -14,7 +14,6 @@ from pathlib import Path
     "2.4.0",
     "https://github.com/mjy1113451/welcome_group"
 )
-
 class WelcomePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -31,18 +30,18 @@ class WelcomePlugin(Star):
         self.config_path = self.data_dir / "config.json"
         # 初始化配置文件
         self.config = self.load_config()
-
+    
     def _get_default_config(self) -> dict:
         """获取默认配置结构"""
         return {
             "groups": {},
-            # 直接使用字典存储全局配置
-            "global_enabled": False,
+            # 以下配置项请在 AstrBot 控制台或配置文件中修改
+            "global_enabled": False, 
             "global_increase_message": "欢迎 {at} 加入本群！当前时间：{time}",
             "global_leave_message": "{user_id} 离开了本群。",
             "global_kick_message": "{user_id} 被移出了本群。"
         }
-
+    
     def load_config(self) -> dict:
         """加载配置文件"""
         default_config = self._get_default_config()
@@ -64,8 +63,9 @@ class WelcomePlugin(Star):
             except Exception as e:
                 logger.error(f"加载配置文件失败: {e}")
                 return default_config
+        
         return default_config
-
+    
     def save_config(self):
         """保存配置到文件"""
         try:
@@ -73,7 +73,7 @@ class WelcomePlugin(Star):
                 json.dump(self.config, f, indent=4, ensure_ascii=False)
         except Exception as e:
             logger.error(f"保存配置文件失败: {e}")
-
+    
     def _ensure_group(self, group_id: str) -> dict:
         """确保群组配置存在，如果不存在则创建默认配置"""
         if group_id not in self.config["groups"]:
@@ -86,14 +86,14 @@ class WelcomePlugin(Star):
                 "kick_message": ""
             }
         return self.config["groups"][group_id]
-
+    
     def _get_raw_message(self, event: AstrMessageEvent):
         """获取原始消息对象"""
         try:
             return event.message_obj.raw_message
         except AttributeError:
             return None
-
+    
     def _parse_time(self, raw: dict) -> str:
         """解析时间"""
         try:
@@ -103,10 +103,9 @@ class WelcomePlugin(Star):
         except:
             pass
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+    
     def _build_onebot_message(self, processed: str, user_id):
         """构建 OneBot 消息"""
-        # 将 {at} 替换为 At 组件
         if "{at}" in processed:
             from astrbot.api.message_components import At
             parts = processed.split("{at}")
@@ -119,13 +118,12 @@ class WelcomePlugin(Star):
             return message_list
         else:
             return [Plain(processed)]
-
+    
     def _build_fallback_chain(self, processed: str, user_id):
         """构建回退消息链"""
-        # 简单的文本替换
         fallback = processed.replace("{at}", f"@{user_id}")
         return [Plain(fallback)]
-
+    
     async def _send_group_msg(self, event: AstrMessageEvent, group_id: str, message_list):
         """发送群消息"""
         try:
@@ -134,8 +132,8 @@ class WelcomePlugin(Star):
                 return True
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
-        return False
-
+            return False
+    
     # ==================== 事件监听 ====================
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_group_increase(self, event: AstrMessageEvent):
@@ -151,7 +149,7 @@ class WelcomePlugin(Star):
             group_id = str(raw.get("group_id"))
             user_id = raw.get("user_id")
             self_id = raw.get("self_id")
-
+            
             # 忽略机器人自己进群
             if str(user_id) == str(self_id):
                 return
@@ -160,21 +158,21 @@ class WelcomePlugin(Star):
             welcome_template = ""
             
             if not group_config:
-                # 如果群未配置，检查全局开关
+                # 如果群未配置，检查全局开关（此开关在配置文件中设置）
                 if self.config.get("global_enabled", False):
                     logger.info(f"群 {group_id} 未配置，使用全局入群欢迎语")
                     welcome_template = self.config.get("global_increase_message", "欢迎 {at} 加入本群！当前时间：{time}")
                 else:
-                    # 如果全局没开，则不做任何事
                     logger.info(f"群 {group_id} 未配置且全局模式未开启，跳过欢迎")
                     return
             else:
                 # 群已配置，检查群开关
                 if not group_config.get("enabled", False):
                     return
+                
                 # 使用群独立配置，如果没填则回退到全局配置
                 welcome_template = group_config.get("message", self.config.get("global_increase_message", "欢迎 {at} 加入本群！当前时间：{time}"))
-
+            
             # 发送消息
             time_str = self._parse_time(raw)
             processed = welcome_template.replace("{time}", time_str).replace("{user_id}", str(user_id))
@@ -190,7 +188,7 @@ class WelcomePlugin(Star):
                     pass
         except Exception as e:
             logger.error(f"处理入群事件时出错: {e}")
-
+    
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_group_decrease(self, event: AstrMessageEvent):
         """处理退群 / 被踢出群事件"""
@@ -212,24 +210,20 @@ class WelcomePlugin(Star):
             
             group_config = self.config["groups"].get(group_id, {})
             template = ""
-
-            # 直接从config字典获取全局配置
+            
             default_leave = self.config.get("global_leave_message", "{user_id} 离开了本群。")
             default_kick = self.config.get("global_kick_message", "{user_id} 被移出了本群。")
-
+            
             if sub_type == "leave":
                 # 退群逻辑
                 if not group_config.get("leave_enabled", False):
-                    # 如果群没有开启退群通知，则不发送
-                    if not group_config: # 群完全没配置的情况
+                    if not group_config:  # 群完全没配置的情况
                         if self.config.get("global_enabled", False):
                             template = default_leave
                         else:
                             return
                     else:
-                        # 群有配置，但开关关了
                         return
-                # 如果走到了这里，说明要发送。取群配置或回退全局
                 template = group_config.get("leave_message", default_leave)
             
             elif sub_type == "kick":
@@ -243,24 +237,22 @@ class WelcomePlugin(Star):
                     else:
                         return
                 template = group_config.get("kick_message", default_kick)
-            
             else:
                 return
-
+            
             time_str = self._parse_time(raw)
-            processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+            processed = template.replace("{time}", time_str).replace("{user_id", str(user_id))
             message_list = self._build_onebot_message(processed, user_id)
             await self._send_group_msg(event, group_id, message_list)
-        
         except Exception as e:
             logger.error(f"处理退群事件时出错: {e}")
-
+    
     # ==================== 指令处理 ====================
     @filter.command_group("welcome", "欢迎功能管理")
     def welcome(self):
         pass
-
-    @welcome.command("set", "设置当前群欢迎语", alias={'设置欢迎'})
+    
+    @welcome.command("set", "设置当前群欢迎语")
     async def set_welcome(self, event: AstrMessageEvent, message: str = ""):
         """
         设置当前群的入群欢迎语
@@ -269,190 +261,135 @@ class WelcomePlugin(Star):
         if not event.message_obj.group_id:
             yield event.plain_result("此指令只能在群聊中使用")
             return
-
+        
         group_id = str(event.message_obj.group_id)
+        
+        # 确保群组配置存在
         group_config = self._ensure_group(group_id)
-
-        if not message.strip():
-            # 重置为全局配置
+        
+        if message.strip():
+            # 设置自定义欢迎语
+            group_config["enabled"] = True
+            group_config["message"] = message.strip()
+            self.save_config()
+            yield event.plain_result(f"已设置群 {group_id} 的欢迎语：\n{message}")
+        else:
+            # 重置为全局欢迎语
+            group_config["enabled"] = False
             group_config["message"] = ""
             self.save_config()
-            yield event.plain_result("已重置本群欢迎语为全局默认配置")
-            return
-
-        group_config["message"] = message
-        group_config["enabled"] = True
-        self.save_config()
-        yield event.plain_result(f"已设置本群欢迎语为：\n{message}")
-
-    @welcome.command("on", "开启当前群欢迎功能", alias={'开启欢迎'})
-    async def enable_welcome(self, event: AstrMessageEvent):
-        """开启当前群的自动欢迎功能"""
-        if not event.message_obj.group_id:
-            yield event.plain_result("此指令只能在群聊中使用")
-            return
-
-        group_id = str(event.message_obj.group_id)
-        group_config = self._ensure_group(group_id)
-        group_config["enabled"] = True
-        self.save_config()
-        yield event.plain_result("已开启本群自动欢迎功能")
-
-    @welcome.command("off", "关闭当前群欢迎功能", alias={'关闭欢迎'})
-    async def disable_welcome(self, event: AstrMessageEvent):
-        """关闭当前群的自动欢迎功能"""
-        if not event.message_obj.group_id:
-            yield event.plain_result("此指令只能在群聊中使用")
-            return
-
-        group_id = str(event.message_obj.group_id)
-        if group_id in self.config["groups"]:
-            self.config["groups"][group_id]["enabled"] = False
-            self.save_config()
-            yield event.plain_result("已关闭本群自动欢迎功能")
-        else:
-            yield event.plain_result("本群尚未配置欢迎功能")
-
-    @welcome.command("test", "测试当前群欢迎语", alias={'测试欢迎'})
-    async def test_welcome(self, event: AstrMessageEvent):
-        """测试当前群的欢迎语效果"""
-        if not event.message_obj.group_id:
-            yield event.plain_result("此指令只能在群聊中使用")
-            return
-
-        group_id = str(event.message_obj.group_id)
-        group_config = self.config["groups"].get(group_id)
-        
-        if not group_config or not group_config.get("enabled", False):
-            yield event.plain_result("本群未开启欢迎功能")
-            return
-
-        # 直接从config字典获取全局配置
-        template = group_config.get("message", self.config.get("global_increase_message", "欢迎 {at} 加入本群！当前时间：{time}"))
-        time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        user_id = event.sender.user_id
-        
-        processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
-        message_list = self._build_onebot_message(processed, user_id)
-        
-        if hasattr(event, 'send'):
-            await event.send(message_list)
-            yield event.plain_result("已发送测试欢迎语")
-        else:
-            yield event.plain_result("无法发送测试消息")
-
-    # ==================== 退群和被踢指令 ====================
+            yield event.plain_result(f"已重置群 {group_id} 的欢迎语为全局默认")
     
-    @filter.command_group("leave", "退群通知管理")
-    def leave(self):
-        pass
-
-    @leave.command("set", "设置退群消息", alias={'设置退群'})
+    @welcome.command("leave", "设置退群提示")
     async def set_leave(self, event: AstrMessageEvent, message: str = ""):
-        """
-        设置当前群的退群消息
-        不填内容则重置为全局退群消息
-        """
+        """设置退群提示语"""
         if not event.message_obj.group_id:
             yield event.plain_result("此指令只能在群聊中使用")
             return
-
+        
         group_id = str(event.message_obj.group_id)
         group_config = self._ensure_group(group_id)
-
-        if not message.strip():
-            # 重置为全局配置
+        
+        if message.strip():
+            group_config["leave_enabled"] = True
+            group_config["leave_message"] = message.strip()
+            self.save_config()
+            yield event.plain_result(f"已设置退群提示：{message}")
+        else:
+            group_config["leave_enabled"] = False
             group_config["leave_message"] = ""
             self.save_config()
-            yield event.plain_result("已重置本群退群消息为全局默认配置")
-            return
-
-        group_config["leave_message"] = message
-        group_config["leave_enabled"] = True
-        self.save_config()
-        yield event.plain_result(f"已设置本群退群消息为：\n{message}")
-
-    @leave.command("on", "开启退群通知", alias={'开启退群'})
-    async def enable_leave(self, event: AstrMessageEvent):
-        """开启当前群的退群通知功能"""
-        if not event.message_obj.group_id:
-            yield event.plain_result("此指令只能在群聊中使用")
-            return
-
-        group_id = str(event.message_obj.group_id)
-        group_config = self._ensure_group(group_id)
-        group_config["leave_enabled"] = True
-        self.save_config()
-        yield event.plain_result("已开启本群退群通知功能")
-
-    @leave.command("off", "关闭退群通知", alias={'关闭退群'})
-    async def disable_leave(self, event: AstrMessageEvent):
-        """关闭当前群的退群通知功能"""
-        if not event.message_obj.group_id:
-            yield event.plain_result("此指令只能在群聊中使用")
-            return
-
-        group_id = str(event.message_obj.group_id)
-        if group_id in self.config["groups"]:
-            self.config["groups"][group_id]["leave_enabled"] = False
-            self.save_config()
-            yield event.plain_result("已关闭本群退群通知功能")
-        else:
-            yield event.plain_result("本群尚未配置退群通知功能")
-
-    @filter.command_group("kick", "被踢通知管理")
-    def kick(self):
-        pass
-
-    @kick.command("set", "设置被踢消息", alias={'设置被踢'})
+            yield event.plain_result("已禁用退群提示")
+    
+    @welcome.command("kick", "设置被踢提示")
     async def set_kick(self, event: AstrMessageEvent, message: str = ""):
-        """
-        设置当前群的被踢消息
-        不填内容则重置为全局被踢消息
-        """
+        """设置被踢提示语"""
         if not event.message_obj.group_id:
             yield event.plain_result("此指令只能在群聊中使用")
             return
-
+        
         group_id = str(event.message_obj.group_id)
         group_config = self._ensure_group(group_id)
-
-        if not message.strip():
-            # 重置为全局配置
+        
+        if message.strip():
+            group_config["kick_enabled"] = True
+            group_config["kick_message"] = message.strip()
+            self.save_config()
+            yield event.plain_result(f"已设置被踢提示：{message}")
+        else:
+            group_config["kick_enabled"] = False
             group_config["kick_message"] = ""
             self.save_config()
-            yield event.plain_result("已重置本群被踢消息为全局默认配置")
-            return
+            yield event.plain_result("已禁用被踢提示")
+    
+    # 移除了 set_global_welcome 和 toggle_global 指令
+    # 这两项功能现通过配置文件管理
 
-        group_config["kick_message"] = message
-        group_config["kick_enabled"] = True
-        self.save_config()
-        yield event.plain_result(f"已设置本群被踢消息为：\n{message}")
-
-    @kick.command("on", "开启被踢通知", alias={'开启被踢'})
-    async def enable_kick(self, event: AstrMessageEvent):
-        """开启当前群的被踢通知功能"""
+    @welcome.command("toggle", "开启/关闭欢迎功能")
+    async def toggle_welcome(self, event: AstrMessageEvent):
+        """切换当前群欢迎功能的开关状态"""
         if not event.message_obj.group_id:
             yield event.plain_result("此指令只能在群聊中使用")
             return
-
+        
         group_id = str(event.message_obj.group_id)
         group_config = self._ensure_group(group_id)
-        group_config["kick_enabled"] = True
+        
+        # 切换状态
+        group_config["enabled"] = not group_config.get("enabled", False)
         self.save_config()
-        yield event.plain_result("已开启本群被踢通知功能")
-
-    @kick.command("off", "关闭被踢通知", alias={'关闭被踢'})
-    async def disable_kick(self, event: AstrMessageEvent):
-        """关闭当前群的被踢通知功能"""
+        
+        status = "已开启" if group_config["enabled"] else "已关闭"
+        yield event.plain_result(f"群 {group_id} 的欢迎功能{status}")
+    
+    @welcome.command("status", "查看欢迎状态")
+    async def show_status(self, event: AstrMessageEvent):
+        """显示当前群的欢迎配置状态"""
         if not event.message_obj.group_id:
             yield event.plain_result("此指令只能在群聊中使用")
             return
-
+        
         group_id = str(event.message_obj.group_id)
+        group_config = self._ensure_group(group_id)
+        
+        status_info = [
+            f"群 {group_id} 欢迎状态：",
+            f"欢迎功能: {'开启' if group_config.get('enabled', False) else '关闭'}",
+            f"欢迎语: {group_config.get('message', '使用全局默认')}",
+            f"退群提示: {'开启' if group_config.get('leave_enabled', False) else '关闭'}",
+            f"退群语: {group_config.get('leave_message', '使用全局默认')}",
+            f"被踢提示: {'开启' if group_config.get('kick_enabled', False) else '关闭'}",
+            f"被踢语: {group_config.get('kick_message', '使用全局默认')}",
+        ]
+        
+        yield event.plain_result("\n".join(status_info))
+    
+    @welcome.command("reset", "重置群欢迎配置")
+    async def reset_config(self, event: AstrMessageEvent):
+        """重置当前群的欢迎配置"""
+        if not event.message_obj.group_id:
+            yield event.plain_result("此指令只能在群聊中使用")
+            return
+        
+        group_id = str(event.message_obj.group_id)
+        
         if group_id in self.config["groups"]:
-            self.config["groups"][group_id]["kick_enabled"] = False
+            del self.config["groups"][group_id]
             self.save_config()
-            yield event.plain_result("已关闭本群被踢通知功能")
+            yield event.plain_result(f"已重置群 {group_id} 的所有欢迎配置")
         else:
-            yield event.plain_result("本群尚未配置被踢通知功能")
+            yield event.plain_result(f"群 {group_id} 未配置，无需重置")
+    
+    @welcome.command("list", "列出所有群配置")
+    async def list_groups(self, event: AstrMessageEvent):
+        """列出所有已配置的群组"""
+        if not self.config["groups"]:
+            yield event.plain_result("当前没有任何群组配置")
+            return
+        
+        group_list = []
+        for group_id, config in self.config["groups"].items():
+            status = "开启" if config.get("enabled", False) else "关闭"
+            group_list.append(f"群 {group_id}: {status}")
+        
+        yield event.plain_result("已配置的群组列表：\n" + "\n".join(group_list))
