@@ -1,7 +1,9 @@
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
-from astrbot.api.message_components import Plain
+from astrbot.api.message_components import Plain, At
+# 导入 MessageChain 用于显式包装消息列表
+from astrbot.api.message import MessageChain
 import json
 import os
 from datetime import datetime
@@ -107,7 +109,6 @@ class WelcomePlugin(Star):
     def _build_onebot_message(self, processed: str, user_id):
         """构建 OneBot 消息"""
         if "{at}" in processed:
-            from astrbot.api.message_components import At
             parts = processed.split("{at}")
             message_list = []
             for i, part in enumerate(parts):
@@ -122,13 +123,16 @@ class WelcomePlugin(Star):
     def _build_fallback_chain(self, processed: str, user_id):
         """构建回退消息链"""
         fallback = processed.replace("{at}", f"@{user_id}")
+        # 返回标准消息组件列表
         return [Plain(fallback)]
     
     async def _send_group_msg(self, event: AstrMessageEvent, group_id: str, message_list):
         """发送群消息"""
         try:
             if hasattr(event, 'send'):
-                await event.send(message_list)
+                # 修复点：显式将消息列表包装为 MessageChain 对象
+                chain = MessageChain(message_list)
+                await event.send(chain)
                 return True
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
@@ -180,8 +184,10 @@ class WelcomePlugin(Star):
             success = await self._send_group_msg(event, group_id, message_list)
             
             if not success:
+                # 尝试发送回退消息
                 try:
-                    chain = self._build_fallback_chain(processed, user_id)
+                    fallback_list = self._build_fallback_chain(processed, user_id)
+                    chain = MessageChain(fallback_list)
                     if hasattr(event, 'send'):
                         await event.send(chain)
                 except Exception:
