@@ -1,6 +1,6 @@
 name: astrbot_plugin_welcome_group #
 display_name: welcome_group
 desc: AstrBot加群欢迎插件
-version: v0.0.2
+version: v0.0.3
 author: mjy1113451
 repo: https://github.com/mjy1113451/welcome_group
