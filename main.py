@@ -2,8 +2,6 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.message_components import Plain, At
-# 导入 MessageChain 用于显式包装消息列表
-from astrbot.api.message import MessageChain
 import json
 import os
 from datetime import datetime
@@ -130,9 +128,8 @@ class WelcomePlugin(Star):
         """发送群消息"""
         try:
             if hasattr(event, 'send'):
-                # 修复点：显式将消息列表包装为 MessageChain 对象
-                chain = MessageChain(message_list)
-                await event.send(chain)
+                # AstrBot 可直接发送消息组件列表，无需导入不存在的 MessageChain
+                await event.send(message_list)
                 return True
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
@@ -187,9 +184,8 @@ class WelcomePlugin(Star):
                 # 尝试发送回退消息
                 try:
                     fallback_list = self._build_fallback_chain(processed, user_id)
-                    chain = MessageChain(fallback_list)
                     if hasattr(event, 'send'):
-                        await event.send(chain)
+                        await event.send(fallback_list)
                 except Exception:
                     pass
         except Exception as e:
