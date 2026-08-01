@@ -321,13 +321,10 @@ class WelcomePlugin(Star):
             group_config["kick_message"] = ""
             self.save_config()
             yield event.plain_result("已禁用被踢提示")
-    
-    # 移除了 set_global_welcome 和 toggle_global 指令
-    # 这两项功能现通过配置文件管理
 
-    @welcome.command("toggle", "开启/关闭欢迎功能")
-    async def toggle_welcome(self, event: AstrMessageEvent):
-        """切换当前群欢迎功能的开关状态"""
+    @welcome.command("on", "开启欢迎功能")
+    async def enable_welcome(self, event: AstrMessageEvent):
+        """开启当前群的欢迎功能"""
         if not event.message_obj.group_id:
             yield event.plain_result("此指令只能在群聊中使用")
             return
@@ -335,12 +332,27 @@ class WelcomePlugin(Star):
         group_id = str(event.message_obj.group_id)
         group_config = self._ensure_group(group_id)
         
-        # 切换状态
-        group_config["enabled"] = not group_config.get("enabled", False)
+        # 设置开启状态
+        group_config["enabled"] = True
         self.save_config()
         
-        status = "已开启" if group_config["enabled"] else "已关闭"
-        yield event.plain_result(f"群 {group_id} 的欢迎功能{status}")
+        yield event.plain_result(f"已开启群 {group_id} 的欢迎功能")
+
+    @welcome.command("off", "关闭欢迎功能")
+    async def disable_welcome(self, event: AstrMessageEvent):
+        """关闭当前群的欢迎功能"""
+        if not event.message_obj.group_id:
+            yield event.plain_result("此指令只能在群聊中使用")
+            return
+        
+        group_id = str(event.message_obj.group_id)
+        group_config = self._ensure_group(group_id)
+        
+        # 设置关闭状态
+        group_config["enabled"] = False
+        self.save_config()
+        
+        yield event.plain_result(f"已关闭群 {group_id} 的欢迎功能")
     
     @welcome.command("status", "查看欢迎状态")
     async def show_status(self, event: AstrMessageEvent):
@@ -363,22 +375,6 @@ class WelcomePlugin(Star):
         ]
         
         yield event.plain_result("\n".join(status_info))
-    
-    @welcome.command("reset", "重置群欢迎配置")
-    async def reset_config(self, event: AstrMessageEvent):
-        """重置当前群的欢迎配置"""
-        if not event.message_obj.group_id:
-            yield event.plain_result("此指令只能在群聊中使用")
-            return
-        
-        group_id = str(event.message_obj.group_id)
-        
-        if group_id in self.config["groups"]:
-            del self.config["groups"][group_id]
-            self.save_config()
-            yield event.plain_result(f"已重置群 {group_id} 的所有欢迎配置")
-        else:
-            yield event.plain_result(f"群 {group_id} 未配置，无需重置")
     
     @welcome.command("list", "列出所有群配置")
     async def list_groups(self, event: AstrMessageEvent):
