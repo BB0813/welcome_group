@@ -1,0 +1,33 @@
+name: Bug反馈
+description: 提交Bug时请附上日志
+labels: ""
+body:
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: 确认事项
+      options:
+        - label: "✅ 我使用的是最新版"
+          required: true
+        - label: "✅ 我确认没有重复的issue"
+          required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 问题描述（带上日志）
+      description: 详细描述问题，并附上相关日志
+      placeholder: |
+        ## 问题描述
+
+
+        ## 复现步骤
+        1.
+        2.
+        3.
+
+        ## 日志
+        ```
+        粘贴日志到这里
+        ```
+    validations:
+      required: true
