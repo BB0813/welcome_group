@@ -1,38 +1,129 @@
-Astrbot 欢迎插件
-✨ 简介
-一款为 Astrbot 平台设计的欢迎新成员入群的插件，支持自定义欢迎模板、提示成员入群等功能。
+# welcome_group
 
-🛠️ 功能特性
-自定义欢迎模板
-给与入群时间
-提示入群用户自己的 UID
-🎮 指令说明
-🎯 欢迎开关指令
-/welcome on
-在群聊中使用，为本群开启自动欢迎新成员入群。
+ AstrBot 入群欢迎插件 —— 自动在群聊中发送入群、离群、退群提醒消息。
 
-/welcome off
-在群聊中使用，为本群关闭自动欢迎新成员入群。
+## 功能特性
 
-⚙️ 设置打卡模板
-/welcome set
-在群聊中使用，为本群配置入群欢迎模板，在命令后面加模板。
+| 消息类型 | 说明 |
+|---|---|
+| **入群欢迎** | 新成员加入群聊时，自动发送自定义欢迎消息 |
+| **离群通知** | 成员主动退出群聊时，发送通知 |
+| **退群通知** | 成员被管理员移出群聊时，发送通知 |
 
-支持{at}（@入群用户），{time}（入群时间），{user_id} （入群用户 UID）。
+### 模板变量
 
-/welcome test
-在群聊中使用，以自己为例，当前时间为准测试配置的模板。
+消息模板支持以下变量，占位符会在实际发送时被替换：
 
-📅 更新日志
-v0.01
-初始版本发布
-支持自定义模板
-支持开关欢迎用户
+| 变量 | 说明 |
+|---|---|
+| `{at}` | @提及新成员 |
+| `{time}` | 事件发生时间 |
+| `{user_id}` | 成员的 QQ 号 |
 
-##作者的插件群
-1079297679
+### 群组独立配置
 
-❤️ 支持
-如果您在使用中遇到问题，欢迎在 github 仓库提交 Issue。
+每个群组可以独立设置是否启用、消息模板，互不干扰。
 
-如果本插件对你有帮助，欢迎点个 ⭐ Star 支持一下！
+---
+
+## 命令
+
+所有命令以 `/welcome` 开头，在群聊中发送即可。
+
+### 入群欢迎
+
+| 命令 | 说明 |
+|---|---|
+| `/welcome on` | 开启当前群的入群欢迎 |
+| `/welcome off` | 关闭当前群的入群欢迎 |
+| `/welcome set <消息>` | 设置入群欢迎消息模板 |
+| `/welcome test` | 测试当前配置（不触发事件） |
+
+### 离群通知
+
+| 命令 | 说明 |
+|---|---|
+| `/welcome leave on` | 开启离群通知 |
+| `/welcome leave off` | 关闭离群通知 |
+| `/welcome leave set <消息>` | 设置离群消息模板 |
+| `/welcome leave test` | 测试当前配置 |
+
+### 退群通知（被踢）
+
+| 命令 | 说明 |
+|---|---|
+| `/welcome kick on` | 开启退群通知 |
+| `/welcome kick off` | 关闭退群通知 |
+| `/welcome kick set <消息>` | 设置退群消息模板 |
+| `/welcome kick test` | 测试当前配置 |
+
+---
+
+## 安装
+
+本插件适用于 [AstrBot](https://github.com/Soulter/helloworld)。
+
+将本仓库克隆到 AstrBot 的插件目录即可：
+
+```bash
+cd <你的AstrBot插件目录>
+git clone https://github.com/mjy1113451/welcome_group.git
+```
+
+---
+
+## 配置
+
+插件首次运行后会在数据目录生成 `welcome_group/config.json`，默认配置如下：
+
+```json
+{
+  "default_message": "欢迎 {at} 加入本群！当前时间：{time}",
+  "default_leave_message": "{user_id} 离开了本群。",
+  "default_kick_message": "{user_id} 被移出了本群。",
+  "groups": {}
+}
+```
+
+`groups` 字段中每个群组可独立配置，例如：
+
+```json
+{
+  "groups": {
+    "123456789": {
+      "enabled": true,
+      "message": "欢迎 {at} 来到交流群！",
+      "leave_enabled": false,
+      "leave_message": "",
+      "kick_enabled": true,
+      "kick_message": "{user_id} 被管理员移出了本群。"
+    }
+  }
+}
+```
+
+---
+
+## 项目结构
+
+```
+welcome_group/
+├── main.py          # 插件主逻辑
+├── metadata.yaml    # 插件元信息（AstrBot 加载所需）
+├── README.md        # 本文档
+├── LICENSE          # AGPLv3 开源协议
+└── .gitignore
+```
+
+---
+
+## 依赖
+
+- **Python 3.10+**
+- **AstrBot** 平台（运行时由 AstrBot 提供）
+
+---
+
+## 开源协议
+
+本项目基于 [GNU Affero General Public License v3](https://www.gnu.org/licenses/agpl-3.0.html) 开源。
