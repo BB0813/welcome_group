@@ -9,6 +9,7 @@
 | **入群欢迎** | 新成员加入群聊时，自动发送自定义欢迎消息 |
 | **离群通知** | 成员主动退出群聊时，发送通知 |
 | **退群通知** | 成员被管理员移出群聊时，发送通知 |
+| **LLM 自动生成** | 使用 AI 模型自动生成欢迎/退群/被踢消息（可选） |
 
 ### 模板变量
 
@@ -57,6 +58,14 @@
 | `/welcome kick set <消息>` | 设置退群消息模板 |
 | `/welcome kick test` | 测试当前配置 |
 
+### LLM 配置
+
+| 命令 | 说明 |
+|---|---|
+| `/welcome llm` | 开启/关闭 LLM 自动生成消息功能 |
+| `/welcome llm_provider <id>` | 设置 LLM 模型供应商 ID |
+| `/welcome llm_list` | 列出所有可用的 LLM provider |
+
 ---
 
 ## 安装
@@ -81,7 +90,9 @@ git clone https://github.com/mjy1113451/welcome_group.git
   "default_message": "欢迎 {at} 加入本群！当前时间：{time}",
   "default_leave_message": "{user_id} 离开了本群。",
   "default_kick_message": "{user_id} 被移出了本群。",
-  "groups": {}
+  "groups": {},
+  "llm_enabled": false,
+  "llm_provider_id": ""
 }
 ```
 
@@ -102,16 +113,26 @@ git clone https://github.com/mjy1113451/welcome_group.git
 }
 ```
 
+### LLM 功能配置
+
+1. 首先在 AstrBot 中配置至少一个 LLM provider（如 OpenAI、DeepSeek 等）
+2. 使用 `/welcome llm_list` 查看可用的 provider ID
+3. 使用 `/welcome llm_provider <id>` 设置要使用的 provider（可选，留空则使用当前聊天的 provider）
+4. 使用 `/welcome llm` 开启 LLM 自动生成功能
+
+开启 LLM 功能后，插件将使用 AI 模型自动生成欢迎/退群/被踢消息，而非使用静态模板。
+
 ---
 
 ## 项目结构
 
 ```
 welcome_group/
-├── main.py          # 插件主逻辑
-├── metadata.yaml    # 插件元信息（AstrBot 加载所需）
-├── README.md        # 本文档
-├── LICENSE          # AGPLv3 开源协议
+├── main.py              # 插件主逻辑
+├── _conf_schema.json    # 插件配置 schema（AstrBot 控制台配置界面所需）
+├── metadata.yaml        # 插件元信息（AstrBot 加载所需）
+├── README.md            # 本文档
+├── LICENSE              # AGPLv3 开源协议
 └── .gitignore
 ```
 
