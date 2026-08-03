@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-@register("welcome_group", "User", "QQ群新人入群自动欢迎插件", "1.0.4", "https://github.com/User/astrbot_plugin_Welcome-group")
+@register("welcome_group", "User", "QQ群新人入群自动欢迎插件", "1.0.5", "https://github.com/mjy1113451/welcome_group")
 class WelcomePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -29,7 +29,9 @@ class WelcomePlugin(Star):
             "default_message": "欢迎 {at} 加入本群！当前时间：{time}",
             "default_leave_message": "{user_id} 离开了本群。",
             "default_kick_message": "{user_id} 被移出了本群。",
-            "groups": {}
+            "groups": {},
+            "llm_enabled": False,
+            "llm_provider_id": ""
         }
 
     def load_config(self):
@@ -55,23 +57,71 @@ class WelcomePlugin(Star):
         except Exception as e:
             logger.error(f"保存配置文件失败: {e}")
 
+    # ==================== LLM 消息生成 ====================
+
+    async def _generate_message_with_llm(self, event: AstrMessageEvent, prompt: str) -> str | None:
+        """使用 LLM 生成消息文案"""
+        try:
+            provider_id = self.config.get("llm_provider_id", "")
+            if not provider_id:
+                # 尝试获取当前聊天的 provider
+                umo = event.unified_msg_origin
+                provider_id = await self.context.get_current_chat_provider_id(umo=umo)
+
+            if not provider_id:
+                logger.warning("WelcomePlugin: 未配置 LLM provider")
+                return None
+
+            llm_resp = await self.context.llm_generate(
+                chat_provider_id=provider_id,
+                prompt=prompt,
+                system_prompt="你是一个QQ群管理助手，请根据用户的要求生成合适的群消息文案。回复要简洁、自然、友好。只返回文案内容，不要添加任何其他解释。"
+            )
+
+            if llm_resp and llm_resp.completion_text:
+                return llm_resp.completion_text.strip()
+            return None
+        except Exception as e:
+            logger.error(f"WelcomePlugin: LLM 生成失败: {e}")
+            return None
+
+    async def _get_message_template(self, event: AstrMessageEvent, message_type: str, fallback: str) -> str:
+        """获取消息模板，优先使用 LLM 生成（如果启用）"""
+        if self.config.get("llm_enabled", False):
+            prompts = {
+                "welcome": "请为QQ群生成一条简短的入群欢迎消息，要求友好、热情。只返回消息内容。",
+                "leave": "请为QQ群生成一条简短的退群通知消息，要求礼貌、温和。只返回消息内容。",
+                "kick": "请为QQ群生成一条简短的被踢通知消息，要求正式、简洁。只返回消息内容。"
+            }
+            prompt = prompts.get(message_type, "")
+            if prompt:
+                generated = await self._generate_message_with_llm(event, prompt)
+                if generated:
+                    return generated
+        return fallback
+
     # ==================== 入群欢迎 ====================
 
-    @filter.event_message_type(filter.EventMessageType.ALL)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def on_group_increase(self, event: AstrMessageEvent):
         """处理新人入群事件"""
         try:
             raw = self._get_raw_message(event)
-            if not isinstance(raw, dict):
+            if raw is None:
                 return None
 
-            if raw.get("post_type") != "notice" or raw.get("notice_type") != "group_increase":
+            # 获取 post_type，兼容 dict 和 Event 对象
+            post_type = self._get_dict_value(raw, "post_type")
+            notice_type = self._get_dict_value(raw, "notice_type")
+
+            if post_type != "notice" or notice_type != "group_increase":
                 return None
 
-            group_id = str(raw.get("group_id"))
-            user_id = raw.get("user_id")
+            group_id = str(self._get_dict_value(raw, "group_id", ""))
+            user_id = self._get_dict_value(raw, "user_id")
+            self_id = self._get_dict_value(raw, "self_id")
 
-            if str(user_id) == str(raw.get("self_id")):
+            if str(user_id) == str(self_id):
                 return None
 
             group_config = self.config["groups"].get(group_id)
@@ -81,7 +131,20 @@ class WelcomePlugin(Star):
             welcome_template = group_config.get("message", self.config["default_message"])
             time_str = self._parse_time(raw)
 
-            processed = welcome_template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+            # 尝试使用 LLM 生成消息
+            llm_message = None
+            if self.config.get("llm_enabled", False):
+                llm_message = await self._generate_message_with_llm(
+                    event,
+                    f"请为新成员 {user_id} 生成一条简短的入群欢迎消息，要求友好、热情。只返回消息内容。"
+                )
+
+            # 使用 LLM 生成的消息或模板
+            if llm_message:
+                processed = llm_message
+            else:
+                processed = welcome_template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+
             message_list = self._build_onebot_message(processed, user_id)
 
             logger.info(f"WelcomePlugin: 准备发送入群欢迎 -> 群 {group_id} 用户 {user_id}")
@@ -95,26 +158,30 @@ class WelcomePlugin(Star):
 
     # ==================== 退群 / 被踢 ====================
 
-    @filter.event_message_type(filter.EventMessageType.ALL)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def on_group_decrease(self, event: AstrMessageEvent):
         """处理退群 / 被踢出群事件"""
         try:
             raw = self._get_raw_message(event)
-            if not isinstance(raw, dict):
+            if raw is None:
                 return None
 
-            if raw.get("post_type") != "notice" or raw.get("notice_type") != "group_decrease":
+            # 获取 post_type，兼容 dict 和 Event 对象
+            post_type = self._get_dict_value(raw, "post_type")
+            notice_type = self._get_dict_value(raw, "notice_type")
+
+            if post_type != "notice" or notice_type != "group_decrease":
                 return None
 
-            sub_type = raw.get("sub_type", "")
+            sub_type = self._get_dict_value(raw, "sub_type", "")
 
             # 机器人自己被踢，无法发消息，仅记录日志
             if sub_type == "kick_me":
-                logger.info(f"WelcomePlugin: 机器人被踢出群 {raw.get('group_id')}，操作者: {raw.get('operator_id')}")
+                logger.info(f"WelcomePlugin: 机器人被踢出群 {self._get_dict_value(raw, 'group_id')}，操作者: {self._get_dict_value(raw, 'operator_id')}")
                 return None
 
-            group_id = str(raw.get("group_id"))
-            user_id = raw.get("user_id")
+            group_id = str(self._get_dict_value(raw, "group_id", ""))
+            user_id = self._get_dict_value(raw, "user_id")
             group_config = self.config["groups"].get(group_id, {})
 
             if sub_type == "leave":
@@ -122,16 +189,32 @@ class WelcomePlugin(Star):
                     return None
                 template = group_config.get("leave_message", self.config["default_leave_message"])
                 log_label = "退群"
+                msg_type = "leave"
             elif sub_type == "kick":
                 if not group_config.get("kick_enabled", False):
                     return None
                 template = group_config.get("kick_message", self.config["default_kick_message"])
                 log_label = "被踢"
+                msg_type = "kick"
             else:
                 return None
 
             time_str = self._parse_time(raw)
-            processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+
+            # 尝试使用 LLM 生成消息
+            llm_message = None
+            if self.config.get("llm_enabled", False):
+                llm_message = await self._generate_message_with_llm(
+                    event,
+                    f"请为用户 {user_id} 生成一条简短的{log_label}通知消息，要求礼貌。只返回消息内容。"
+                )
+
+            # 使用 LLM 生成的消息或模板
+            if llm_message:
+                processed = llm_message
+            else:
+                processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+
             message_list = self._build_onebot_message(processed, user_id)
 
             logger.info(f"WelcomePlugin: 准备发送{log_label}通知 -> 群 {group_id} 用户 {user_id}")
@@ -206,7 +289,20 @@ class WelcomePlugin(Star):
         user_id = event.get_sender_id()
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+        # 尝试使用 LLM 生成消息
+        llm_message = None
+        if self.config.get("llm_enabled", False):
+            llm_message = await self._generate_message_with_llm(
+                event,
+                f"请为用户 {user_id} 生成一条简短的入群欢迎消息，要求友好、热情。只返回消息内容。"
+            )
+
+        # 使用 LLM 生成的消息或模板
+        if llm_message:
+            processed = llm_message
+        else:
+            processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+
         message_list = self._build_onebot_message(processed, user_id)
 
         sent = await self._try_send_via_bot(event, group_id, message_list)
@@ -274,7 +370,20 @@ class WelcomePlugin(Star):
         user_id = event.get_sender_id()
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+        # 尝试使用 LLM 生成消息
+        llm_message = None
+        if self.config.get("llm_enabled", False):
+            llm_message = await self._generate_message_with_llm(
+                event,
+                f"请为用户 {user_id} 生成一条简短的退群通知消息，要求礼貌。只返回消息内容。"
+            )
+
+        # 使用 LLM 生成的消息或模板
+        if llm_message:
+            processed = llm_message
+        else:
+            processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+
         message_list = self._build_onebot_message(processed, user_id)
 
         sent = await self._try_send_via_bot(event, group_id, message_list)
@@ -342,28 +451,90 @@ class WelcomePlugin(Star):
         user_id = event.get_sender_id()
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+        # 尝试使用 LLM 生成消息
+        llm_message = None
+        if self.config.get("llm_enabled", False):
+            llm_message = await self._generate_message_with_llm(
+                event,
+                f"请为用户 {user_id} 生成一条简短的被踢通知消息，要求正式、简洁。只返回消息内容。"
+            )
+
+        # 使用 LLM 生成的消息或模板
+        if llm_message:
+            processed = llm_message
+        else:
+            processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+
         message_list = self._build_onebot_message(processed, user_id)
 
         sent = await self._try_send_via_bot(event, group_id, message_list)
         if not sent:
             yield event.plain_result("无法发送测试消息，请检查 bot 连接或日志。")
 
+    # ---- LLM 配置指令 ----
+
+    @welcome_group_cmd.command("llm")
+    async def toggle_llm(self, event: AstrMessageEvent):
+        """开启/关闭 LLM 自动生成消息功能"""
+        current = self.config.get("llm_enabled", False)
+        self.config["llm_enabled"] = not current
+        self.save_config()
+        status = "开启" if not current else "关闭"
+        yield event.plain_result(f"LLM 自动生成消息功能已{status}。")
+
+    @welcome_group_cmd.command("llm_provider")
+    async def set_llm_provider(self, event: AstrMessageEvent, provider_id: str):
+        """设置 LLM 模型供应商 ID。例如: /welcome llm_provider openai_gpt4"""
+        provider_id = self._get_full_message(event, "llm_provider")
+        if not provider_id:
+            yield event.plain_result("请提供 provider ID。\n使用 /welcome llm_list 查看可用的 provider。")
+            return
+        self.config["llm_provider_id"] = provider_id.strip()
+        self.save_config()
+        yield event.plain_result(f"已设置 LLM provider 为: {provider_id.strip()}")
+
+    @welcome_group_cmd.command("llm_list")
+    async def list_llm_providers(self, event: AstrMessageEvent):
+        """列出所有可用的 LLM provider"""
+        try:
+            providers = self.context.get_all_providers()
+            if not providers:
+                yield event.plain_result("没有可用的 LLM provider。请先在 AstrBot 中配置。")
+                return
+
+            lines = ["可用的 LLM provider："]
+            for p in providers:
+                lines.append(f"- {p.id}")
+            yield event.plain_result("\n".join(lines))
+        except Exception as e:
+            yield event.plain_result(f"获取 provider 列表失败: {e}")
+
     # ==================== 工具方法 ====================
 
     @staticmethod
     def _get_raw_message(event: AstrMessageEvent):
         """兼容不同 event 类型获取 raw_message"""
-        if hasattr(event, 'raw_message'):
+        if hasattr(event, 'raw_message') and event.raw_message:
             return event.raw_message
         elif hasattr(event, 'message_obj') and hasattr(event.message_obj, 'raw_message'):
             return event.message_obj.raw_message
         return None
 
     @staticmethod
+    def _get_dict_value(data, key, default=None):
+        """从 dict 或类 dict 对象中获取值"""
+        if isinstance(data, dict):
+            return data.get(key, default)
+        elif hasattr(data, 'get'):
+            return data.get(key, default)
+        elif hasattr(data, key):
+            return getattr(data, key)
+        return default
+
+    @staticmethod
     def _parse_time(raw: dict) -> str:
         """将 OneBot 事件中的 time 字段转为格式化字符串"""
-        event_time = raw.get("time", time.time())
+        event_time = WelcomePlugin._get_dict_value(raw, "time", time.time())
         try:
             return datetime.fromtimestamp(event_time).strftime("%Y-%m-%d %H:%M:%S")
         except Exception:

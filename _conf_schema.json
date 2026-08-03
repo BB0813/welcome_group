@@ -1,0 +1,16 @@
+{
+  "llm_enabled": {
+    "description": "开启/关闭 LLM 自动生成消息功能",
+    "type": "boolean",
+    "default": false,
+    "title": "启用 LLM 自动生成",
+    "hint": "开启后将使用 LLM 模型自动生成欢迎/退群/被踢消息"
+  },
+  "llm_provider_id": {
+    "description": "LLM 模型供应商 ID（留空则使用当前聊天的 provider）",
+    "type": "string",
+    "default": "",
+    "title": "LLM Provider ID",
+    "hint": "可在 /welcome llm_list 中查看可用的 provider"
+  }
+}
