@@ -102,7 +102,7 @@ class WelcomePlugin(Star):
 
     # ==================== 入群欢迎 ====================
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_group_increase(self, event: AstrMessageEvent):
         """处理新人入群事件"""
         try:
@@ -158,7 +158,7 @@ class WelcomePlugin(Star):
 
     # ==================== 退群 / 被踢 ====================
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_group_decrease(self, event: AstrMessageEvent):
         """处理退群 / 被踢出群事件"""
         try:
