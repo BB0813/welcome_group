@@ -291,6 +291,7 @@ class WelcomePlugin(Star):
             default_key="default_message",
             log_label="欢迎",
             llm_prompt="入群欢迎",
+            llm_tone="友好、热情",
         ):
             yield result
 
@@ -347,6 +348,7 @@ class WelcomePlugin(Star):
             default_key="default_leave_message",
             log_label="退群",
             llm_prompt="退群通知",
+            llm_tone="礼貌",
         ):
             yield result
 
@@ -359,6 +361,7 @@ class WelcomePlugin(Star):
             default_key="default_kick_message",
             log_label="被踢",
             llm_prompt="被踢通知",
+            llm_tone="正式、简洁",
         ):
             yield result
 
@@ -470,7 +473,7 @@ class WelcomePlugin(Star):
         except Exception as e:
             logger.error(f"WelcomePlugin: 发送消息失败: {e}")
 
-    async def _run_test(self, event: AstrMessageEvent, template_field: str, default_key: str, log_label: str, llm_prompt: str):
+    async def _run_test(self, event: AstrMessageEvent, template_field: str, default_key: str, log_label: str, llm_prompt: str, llm_tone: str):
         """测试命令的公共实现：读取模板 -> LLM 生成（可选）-> 构建消息 -> 发送"""
         group_id = event.message_obj.group_id
         if not group_id:
@@ -479,6 +482,10 @@ class WelcomePlugin(Star):
 
         group_config = self.config["groups"].get(str(group_id), {})
         template = group_config.get(template_field, self.config.get(default_key, ""))
+        if not template:
+            yield event.plain_result(f"未找到模板，请先通过 /welcome set 等命令配置。")
+            return
+
         user_id = event.get_sender_id()
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -486,7 +493,7 @@ class WelcomePlugin(Star):
         if self.config.get("llm_enabled", False):
             llm_message = await self._generate_message_with_llm(
                 event,
-                f"请为用户 {user_id} 生成一条简短的{llm_prompt}消息，简洁、友好。只返回消息内容。",
+                f"请为用户 {user_id} 生成一条简短的{llm_prompt}消息，要求{llm_tone}。只返回消息内容。",
             )
 
         if llm_message:

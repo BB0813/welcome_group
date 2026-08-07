@@ -37,26 +37,26 @@
 |---|---|
 | `/welcome on` | 开启当前群的入群欢迎 |
 | `/welcome off` | 关闭当前群的入群欢迎 |
-| `/welcome set <消息>` | 设置入群欢迎消息模板 |
-| `/welcome test` | 测试当前配置（不触发事件） |
+| `/welcome set <消息>` | 设置入群欢迎（不填内容则重置为默认） |
+| `/welcome test` | 测试入群欢迎（不触发事件） |
+
+### 测试命令
+
+> 由于 AstrBot 命令注册器不支持嵌套的 `command_group`，所有命令都挂载在 `/welcome` 顶层下。原 issue #28 中提出的 `/leave test`、`/kick test` 命令格式无法实现，使用 `/welcome test_leave`、`/welcome test_kick` 替代。
 
 ### 离群通知
 
 | 命令 | 说明 |
 |---|---|
-| `/welcome leave on` | 开启离群通知 |
-| `/welcome leave off` | 关闭离群通知 |
-| `/welcome leave set <消息>` | 设置离群消息模板 |
-| `/welcome leave test` | 测试当前配置 |
+| `/welcome leave <消息>` | 设置退群通知（不填内容则禁用） |
+| `/welcome test_leave` | 测试当前退群通知 |
 
 ### 退群通知（被踢）
 
 | 命令 | 说明 |
 |---|---|
-| `/welcome kick on` | 开启退群通知 |
-| `/welcome kick off` | 关闭退群通知 |
-| `/welcome kick set <消息>` | 设置退群消息模板 |
-| `/welcome kick test` | 测试当前配置 |
+| `/welcome kick <消息>` | 设置被踢通知（不填内容则禁用） |
+| `/welcome test_kick` | 测试当前被踢通知 |
 
 ### LLM 配置
 
