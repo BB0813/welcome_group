@@ -282,6 +282,19 @@ class WelcomePlugin(Star):
             self.save_config()
         yield event.plain_result("本群入群欢迎功能已关闭。")
 
+    @welcome_group_cmd.command("test", "测试入群欢迎提示")
+    async def test_welcome(self, event: AstrMessageEvent):
+        """测试发送当前群的入群欢迎语"""
+        async for result in self._run_test(
+            event,
+            template_field="message",
+            default_key="default_message",
+            log_label="欢迎",
+            llm_prompt="入群欢迎",
+            llm_tone="友好、热情",
+        ):
+            yield result
+
     # ---- 退群通知指令 ----
 
     @welcome_group_cmd.command("leave", "设置退群提示")
@@ -325,6 +338,32 @@ class WelcomePlugin(Star):
             group_config["kick_message"] = ""
             self.save_config()
             yield event.plain_result("已禁用被踢提示")
+
+    @welcome_group_cmd.command("test_leave", "测试退群通知")
+    async def test_leave(self, event: AstrMessageEvent):
+        """测试发送当前群的退群通知"""
+        async for result in self._run_test(
+            event,
+            template_field="leave_message",
+            default_key="default_leave_message",
+            log_label="退群",
+            llm_prompt="退群通知",
+            llm_tone="礼貌",
+        ):
+            yield result
+
+    @welcome_group_cmd.command("test_kick", "测试被踢通知")
+    async def test_kick(self, event: AstrMessageEvent):
+        """测试发送当前群的被踢通知"""
+        async for result in self._run_test(
+            event,
+            template_field="kick_message",
+            default_key="default_kick_message",
+            log_label="被踢",
+            llm_prompt="被踢通知",
+            llm_tone="正式、简洁",
+        ):
+            yield result
 
     # ---- LLM 配置指令 ----
 
@@ -433,3 +472,38 @@ class WelcomePlugin(Star):
                 logger.warning("WelcomePlugin: event 对象不支持 send 方法")
         except Exception as e:
             logger.error(f"WelcomePlugin: 发送消息失败: {e}")
+
+    async def _run_test(self, event: AstrMessageEvent, template_field: str, default_key: str, log_label: str, llm_prompt: str, llm_tone: str):
+        """测试命令的公共实现：读取模板 -> LLM 生成（可选）-> 构建消息 -> 发送"""
+        group_id = event.message_obj.group_id
+        if not group_id:
+            yield event.plain_result("请在群聊中使用此指令。")
+            return
+
+        group_config = self.config["groups"].get(str(group_id), {})
+        template = group_config.get(template_field, self.config.get(default_key, ""))
+        if not template:
+            yield event.plain_result(f"未找到模板，请先通过 /welcome set 等命令配置。")
+            return
+
+        user_id = event.get_sender_id()
+        time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        llm_message = None
+        if self.config.get("llm_enabled", False):
+            llm_message = await self._generate_message_with_llm(
+                event,
+                f"请为用户 {user_id} 生成一条简短的{llm_prompt}消息，要求{llm_tone}。只返回消息内容。",
+            )
+
+        if llm_message:
+            processed = llm_message
+        else:
+            processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
+
+        message_list = self._build_onebot_message(processed, user_id)
+        try:
+            await event.send(message_list)
+        except Exception as e:
+            logger.error(f"WelcomePlugin: 测试{log_label}消息发送失败: {e}")
+            yield event.plain_result(f"测试失败: {e}")
