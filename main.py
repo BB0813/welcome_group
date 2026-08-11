@@ -108,25 +108,25 @@ class WelcomePlugin(Star):
         try:
             raw = self._get_raw_message(event)
             if raw is None:
-                return None
+                return
 
             # 获取 post_type，兼容 dict 和 Event 对象
             post_type = self._get_dict_value(raw, "post_type")
             notice_type = self._get_dict_value(raw, "notice_type")
 
             if post_type != "notice" or notice_type != "group_increase":
-                return None
+                return
 
             group_id = str(self._get_dict_value(raw, "group_id", ""))
             user_id = self._get_dict_value(raw, "user_id")
             self_id = self._get_dict_value(raw, "self_id")
 
             if str(user_id) == str(self_id):
-                return None
+                return
 
             group_config = self.config["groups"].get(group_id)
             if not group_config or not group_config.get("enabled", False):
-                return None
+                return
 
             welcome_template = group_config.get("message", self.config["default_message"])
             time_str = self._parse_time(raw)
@@ -145,16 +145,14 @@ class WelcomePlugin(Star):
             else:
                 processed = welcome_template.replace("{time}", time_str).replace("{user_id}", str(user_id))
 
-            message_list = self._build_onebot_message(processed, user_id)
+            message_list = self._build_onebot_message(processed, int(user_id))
 
             logger.info(f"WelcomePlugin: 准备发送入群欢迎 -> 群 {group_id} 用户 {user_id}")
 
-            await self._send_group_msg(event, group_id, message_list)
-            return None
+            yield event.chain_result(message_list)
 
         except Exception as e:
             logger.error(f"WelcomePlugin: 处理入群事件失败: {e}")
-        return None
 
     # ==================== 退群 / 被踢 ====================
 
@@ -164,21 +162,21 @@ class WelcomePlugin(Star):
         try:
             raw = self._get_raw_message(event)
             if raw is None:
-                return None
+                return
 
             # 获取 post_type，兼容 dict 和 Event 对象
             post_type = self._get_dict_value(raw, "post_type")
             notice_type = self._get_dict_value(raw, "notice_type")
 
             if post_type != "notice" or notice_type != "group_decrease":
-                return None
+                return
 
             sub_type = self._get_dict_value(raw, "sub_type", "")
 
             # 机器人自己被踢，无法发消息，仅记录日志
             if sub_type == "kick_me":
                 logger.info(f"WelcomePlugin: 机器人被踢出群 {self._get_dict_value(raw, 'group_id')}，操作者: {self._get_dict_value(raw, 'operator_id')}")
-                return None
+                return
 
             group_id = str(self._get_dict_value(raw, "group_id", ""))
             user_id = self._get_dict_value(raw, "user_id")
@@ -186,18 +184,16 @@ class WelcomePlugin(Star):
 
             if sub_type == "leave":
                 if not group_config.get("leave_enabled", False):
-                    return None
+                    return
                 template = group_config.get("leave_message", self.config["default_leave_message"])
                 log_label = "退群"
-                msg_type = "leave"
             elif sub_type == "kick":
                 if not group_config.get("kick_enabled", False):
-                    return None
+                    return
                 template = group_config.get("kick_message", self.config["default_kick_message"])
                 log_label = "被踢"
-                msg_type = "kick"
             else:
-                return None
+                return
 
             time_str = self._parse_time(raw)
 
@@ -215,16 +211,14 @@ class WelcomePlugin(Star):
             else:
                 processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
 
-            message_list = self._build_onebot_message(processed, user_id)
+            message_list = self._build_onebot_message(processed, int(user_id))
 
             logger.info(f"WelcomePlugin: 准备发送{log_label}通知 -> 群 {group_id} 用户 {user_id}")
 
-            await self._send_group_msg(event, group_id, message_list)
-            return None
+            yield event.chain_result(message_list)
 
         except Exception as e:
             logger.error(f"WelcomePlugin: 处理退群/被踢事件失败: {e}")
-        return None
 
     # ==================== 指令入口 ====================
 
@@ -501,7 +495,7 @@ class WelcomePlugin(Star):
         else:
             processed = template.replace("{time}", time_str).replace("{user_id}", str(user_id))
 
-        message_list = self._build_onebot_message(processed, user_id)
+        message_list = self._build_onebot_message(processed, int(user_id))
         try:
             await event.send(MessageChain(message_list))
         except Exception as e:
