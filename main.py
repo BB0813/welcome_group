@@ -1,4 +1,4 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageChain
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.api.message_components import At, Plain
@@ -466,7 +466,7 @@ class WelcomePlugin(Star):
         """发送群消息"""
         try:
             if hasattr(event, 'send'):
-                await event.chain_result(MessageChain(message_list)).send()
+                await event.chain_result(message_list).send()
                 logger.info(f"WelcomePlugin: 发送消息成功 -> 群 {group_id}")
             else:
                 logger.warning("WelcomePlugin: event 对象不支持 send 方法")
@@ -503,7 +503,7 @@ class WelcomePlugin(Star):
 
         message_list = self._build_onebot_message(processed, user_id)
         try:
-            await event.chain_result(MessageChain(message_list)).send()
+            await event.chain_result(message_list).send()
         except Exception as e:
             logger.error(f"WelcomePlugin: 测试{log_label}消息发送失败: {e}")
             yield event.plain_result("测试失败: " + str(e))
