@@ -466,7 +466,7 @@ class WelcomePlugin(Star):
         """发送群消息"""
         try:
             if hasattr(event, 'send'):
-                await event.send(message_list)
+                await event.chain_result(message_list).send()
                 logger.info(f"WelcomePlugin: 发送消息成功 -> 群 {group_id}")
             else:
                 logger.warning("WelcomePlugin: event 对象不支持 send 方法")
@@ -483,7 +483,7 @@ class WelcomePlugin(Star):
         group_config = self.config["groups"].get(str(group_id), {})
         template = group_config.get(template_field, self.config.get(default_key, ""))
         if not template:
-            yield event.plain_result(f"未找到模板，请先通过 /welcome set 等命令配置。")
+            yield event.plain_result("未找到模板，请先通过 /welcome set 等命令配置。")
             return
 
         user_id = event.get_sender_id()
@@ -503,7 +503,7 @@ class WelcomePlugin(Star):
 
         message_list = self._build_onebot_message(processed, user_id)
         try:
-            await event.send(message_list)
+            await event.chain_result(message_list).send()
         except Exception as e:
             logger.error(f"WelcomePlugin: 测试{log_label}消息发送失败: {e}")
-            yield event.plain_result(f"测试失败: {e}")
+            yield event.plain_result("测试失败: " + str(e))
