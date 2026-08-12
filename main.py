@@ -149,7 +149,7 @@ class WelcomePlugin(Star):
 
             logger.info(f"WelcomePlugin: 准备发送入群欢迎 -> 群 {group_id} 用户 {user_id}")
 
-            yield event.chain_result(message_list)
+            await self._send_group_msg(event, group_id, message_list)
 
         except Exception as e:
             logger.error(f"WelcomePlugin: 处理入群事件失败: {e}")
@@ -215,7 +215,7 @@ class WelcomePlugin(Star):
 
             logger.info(f"WelcomePlugin: 准备发送{log_label}通知 -> 群 {group_id} 用户 {user_id}")
 
-            yield event.chain_result(message_list)
+            await self._send_group_msg(event, group_id, message_list)
 
         except Exception as e:
             logger.error(f"WelcomePlugin: 处理退群/被踢事件失败: {e}")
@@ -457,13 +457,26 @@ class WelcomePlugin(Star):
 
     @staticmethod
     async def _send_group_msg(event: AstrMessageEvent, group_id: str, message_list: list):
-        """发送群消息"""
+        """发送群消息 - 直接使用 bot API，绕过框架的 Reply 组件注入"""
         try:
-            if hasattr(event, 'send'):
-                await event.send(MessageChain(message_list))
+            bot = getattr(event, 'bot', None)
+            if bot and hasattr(bot, 'send_group_msg'):
+                # 将消息组件转为 OneBot JSON 格式
+                raw_messages = []
+                for comp in message_list:
+                    if hasattr(comp, 'toDict'):
+                        raw_messages.append(comp.toDict())
+                    elif isinstance(comp, dict):
+                        raw_messages.append(comp)
+                    else:
+                        raw_messages.append({"type": "text", "data": {"text": str(comp)}})
+                await bot.send_group_msg(group_id=int(group_id), message=raw_messages)
                 logger.info(f"WelcomePlugin: 发送消息成功 -> 群 {group_id}")
+            elif hasattr(event, 'send'):
+                await event.send(MessageChain(message_list))
+                logger.info(f"WelcomePlugin: 发送消息成功(event.send) -> 群 {group_id}")
             else:
-                logger.warning("WelcomePlugin: event 对象不支持 send 方法")
+                logger.warning("WelcomePlugin: 无法获取 bot 对象或 send 方法")
         except Exception as e:
             logger.error(f"WelcomePlugin: 发送消息失败: {e}")
 
@@ -497,7 +510,7 @@ class WelcomePlugin(Star):
 
         message_list = self._build_onebot_message(processed, int(user_id))
         try:
-            await event.send(MessageChain(message_list))
+            await self._send_group_msg(event, str(group_id), message_list)
         except Exception as e:
             logger.error(f"WelcomePlugin: 测试{log_label}消息发送失败: {e}")
             yield event.plain_result("测试失败: " + str(e))
