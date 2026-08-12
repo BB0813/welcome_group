@@ -1,6 +1,6 @@
 # 代码审查经验积累
 
-> 累计反思 23 次
+> 累计反思 28 次
 
 ## 1. 框架 API 变更审查规范
 
@@ -90,11 +90,48 @@ f"错误信息: {e}"
 | 批量相同修改 | 暗示复制粘贴或同时引入，评估能否重构 |
 | Quick 审查 | 明确边界，避免"看起来没问题"的模糊结论 |
 | 测试代码差异 | 框架升级时测试代码也可能受影响 |
+| **PR 描述声明"移除 X"** | **必须 grep 确认 X 真的不再使用**，矛盾是高风险信号 |
+| **多层 Fallback** | 各路径前置条件、None 显式日志、hasattr vs getattr 差异 |
+| **框架绕过修复** | 必须评估框架注入行为扩散范围（如 Reply 组件注入触发条件） |
 
-## 8. 常用 grep 关键词
+## 8. 框架问题 Issue 分析模板
+
+```markdown
+责任边界：框架/本仓库/用户配置
+缓解方案：文档说明/配置指导
+替代路径：手动安装/降级建议
+标签体系：external-dependency > framework-compatibility（后者仅适用于插件适配场景）
+```
+
+## 9. Issue 标签准确性
+
+| Issue 类型 | 必加标签 |
+|------------|----------|
+| 框架自身 bug | `bug` + `external-dependency` 或 `needs-upstream-fix` |
+| 框架升级回归 | `bug` + `regression` |
+| 插件适配框架 | `bug` + `framework-compatibility` |
+
+**注意**：摘要协议标签错误不应阻断实质分析；"other"分类门槛极高；可行性"无法评估"应谨慎使用。
+
+## 10. 多层 Fallback 审查清单
+
+```
+1. 各路径前置条件是否满足？
+2. getattr(obj, None) 后续是否有显式日志记录？
+3. None 时是否安全跳过而非静默失败？
+4. 旧版本 API 是否存在？是否需要版本检测？
+5. 网络异常是否有 try-except 处理？
+```
+
+## 10. 常用 grep 关键词
 
 | 搜索目标 | 关键词 |
 |----------|--------|
 | Reply 组件 | `Reply(` 或 `MessageChain([Reply` |
 | event.send 调用 | `event\.send(` |
 | MessageChain 构建 | `MessageChain(` |
+| PR 描述验证 | `grep -n "SymbolName" file.py` 验证"移除"声明 |
+
+---
+
+*基于 PR#40/41 及 ISSUE#42/43 反思更新*
