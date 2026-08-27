@@ -5,6 +5,7 @@ from astrbot.api.message_components import At, Plain
 import json
 import os
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -258,6 +259,7 @@ class WelcomePlugin(Star):
             yield event.plain_result("请在群聊中使用此指令。")
             return
 
+        group_id = str(group_id)
         self._ensure_group(group_id)
         self.config["groups"][group_id]["enabled"] = True
         self.save_config()
@@ -271,6 +273,7 @@ class WelcomePlugin(Star):
             yield event.plain_result("请在群聊中使用此指令。")
             return
 
+        group_id = str(group_id)
         if group_id in self.config["groups"]:
             self.config["groups"][group_id]["enabled"] = False
             self.save_config()
@@ -429,6 +432,7 @@ class WelcomePlugin(Star):
 
     def _ensure_group(self, group_id: str):
         """确保群配置条目存在"""
+        group_id = str(group_id)
         if group_id not in self.config["groups"]:
             self.config["groups"][group_id] = {
                 "enabled": False,
@@ -456,22 +460,65 @@ class WelcomePlugin(Star):
             return [Plain(template)]
 
     @staticmethod
-    async def _send_group_msg(event: AstrMessageEvent, group_id: str, message_list: list):
+    def _component_to_onebot_segment(component) -> dict:
+        """将 AstrBot 消息组件转换为可 JSON 序列化的 OneBot 消息段。"""
+        if isinstance(component, dict):
+            segment = component
+        elif isinstance(component, Plain):
+            segment = {"type": "text", "data": {"text": component.text}}
+        elif isinstance(component, At):
+            segment = {"type": "at", "data": {"qq": str(component.qq)}}
+        else:
+            segment = None
+            for method_name in ("dump", "to_dict", "model_dump"):
+                serializer = getattr(component, method_name, None)
+                if callable(serializer):
+                    candidate = serializer()
+                    if isinstance(candidate, dict):
+                        segment = candidate
+                        break
+
+        if (
+            not isinstance(segment, dict)
+            or not isinstance(segment.get("type"), str)
+            or not isinstance(segment.get("data"), dict)
+        ):
+            raise TypeError(
+                f"无法将 {type(component).__name__} 转换为 OneBot 消息段"
+            )
+        return segment
+
+    @classmethod
+    def _to_onebot_message(cls, message_list: list) -> list[dict]:
+        """构建并校验 OneBot API 所需的 JSON 消息数组。"""
+        message = [cls._component_to_onebot_segment(item) for item in message_list]
+        json.dumps(message, ensure_ascii=False)
+        return message
+
+    @classmethod
+    async def _send_group_msg(cls, event: AstrMessageEvent, group_id: str, message_list: list):
         """发送群消息 - 直接使用 bot API，绕过框架的 Reply 组件注入"""
         try:
             bot = getattr(event, 'bot', None)
             if bot and hasattr(bot, 'send_group_msg'):
                 # 直接通过 OneBot API 发送，避免框架 Reply 组件导致 retcode=1400
-                await bot.send_group_msg(group_id=int(group_id), message=message_list)
+                onebot_message = cls._to_onebot_message(message_list)
+                await bot.send_group_msg(
+                    group_id=int(group_id),
+                    message=onebot_message,
+                )
                 logger.info(f"WelcomePlugin: 发送消息成功 -> 群 {group_id}")
             elif hasattr(event, 'send'):
-                # 回退到 event.send（可能有 Reply 组件问题）
+                # event.send 接收 AstrBot 组件；只有 bot API 分支需要 OneBot 字典。
                 await event.send(MessageChain(message_list))
                 logger.info(f"WelcomePlugin: 发送消息成功(event.send) -> 群 {group_id}")
             else:
                 logger.warning("WelcomePlugin: 无法获取 bot 对象或 send 方法")
         except Exception as e:
-            logger.error(f"WelcomePlugin: 发送消息失败: {e}")
+            logger.error(
+                f"WelcomePlugin: 发送消息失败: {e}\n{traceback.format_exc()}"
+            )
+            raise
 
     async def _run_test(self, event: AstrMessageEvent, template_field: str, default_key: str, log_label: str, llm_prompt: str, llm_tone: str):
         """测试命令的公共实现：读取模板 -> LLM 生成（可选）-> 构建消息 -> 发送"""
