@@ -1,4 +1,4 @@
-# welcome_group
+# welcome_bye_group
 
  AstrBot 入群欢迎插件 —— 自动在群聊中发送入群、离群、退群提醒消息。
 
