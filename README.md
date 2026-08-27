@@ -147,4 +147,4 @@ welcome_group/
 
 ## 开源协议
 
-本项目基于 [GNU Affero General Public License v3](https://www.gnu.org/licenses/agpl-3.0.html) 开源。
+本项目基于 [License](https://github.com/mjy1113451/welcome_group/blob/master/LICENSE) 开源。
