@@ -512,19 +512,22 @@ class WelcomePlugin(Star):
         leave_t, leave_enabled, leave_src = self._resolve_leave(group_id)
         kick_t, kick_enabled, kick_src = self._resolve_kick(group_id)
 
+        def _trunc(t: str) -> str:
+            return f"{t[:50]}{'...' if len(t) > 50 else ''}"
+
         lines = [
             f"全局模式: {'开启' if global_on else '关闭'}",
-            f"全局欢迎语: {self.config.get('global_welcome_message', '')}",
-            f"全局退群语: {self.config.get('global_leave_message', '')}",
-            f"全局被踢语: {self.config.get('global_kick_message', '')}",
+            f"全局欢迎语: {_trunc(self.config.get('global_welcome_message', ''))}",
+            f"全局退群语: {_trunc(self.config.get('global_leave_message', ''))}",
+            f"全局被踢语: {_trunc(self.config.get('global_kick_message', ''))}",
             "",
             f"本群 (群 {group_id}) 当前生效配置:",
             f"- 欢迎: {'开启' if welcome_enabled else '关闭'} (来源: {welcome_src})",
-            f"  模板: {welcome_t[:50]}{'...' if len(welcome_t) > 50 else ''}",
+            f"  模板: {_trunc(welcome_t)}",
             f"- 退群: {'开启' if leave_enabled else '关闭'} (来源: {leave_src})",
-            f"  模板: {leave_t}",
+            f"  模板: {_trunc(leave_t)}",
             f"- 被踢: {'开启' if kick_enabled else '关闭'} (来源: {kick_src})",
-            f"  模板: {kick_t}",
+            f"  模板: {_trunc(kick_t)}",
         ]
         yield event.plain_result("\n".join(lines))
 
