@@ -590,8 +590,8 @@ class WelcomePlugin(Star):
         else:
             return [Plain(template)]
 
-    @staticmethod
-    async def _send_group_msg(event: AstrMessageEvent, group_id: str, message_list: list):
+    @classmethod
+    async def _send_group_msg(cls, event: AstrMessageEvent, group_id: str, message_list: list):
         """发送群消息 - 直接使用 bot API，绕过框架的 Reply 组件注入"""
         try:
             bot = getattr(event, 'bot', None)
