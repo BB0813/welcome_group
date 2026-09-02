@@ -5,6 +5,7 @@ from astrbot.api.message_components import At, Plain
 import json
 import os
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -598,9 +599,19 @@ class WelcomePlugin(Star):
                     if hasattr(comp, 'toDict'):
                         raw_messages.append(comp.toDict())
                     elif isinstance(comp, dict):
-                        raw_messages.append(comp)
+                        # 校验 dict 段必须包含 type 和 data 字段，否则跳过并记录告警
+                        if 'type' in comp and 'data' in comp:
+                            raw_messages.append(comp)
+                        else:
+                            logger.warning(
+                                f"WelcomePlugin: 跳过非法消息段 dict={comp!r}，缺少 type 或 data"
+                            )
                     else:
+                        # 未知类型退化为纯文本（best-effort，不抛错以保证消息至少能发送）
                         raw_messages.append({"type": "text", "data": {"text": str(comp)}})
+                if not raw_messages:
+                    logger.error(f"WelcomePlugin: 消息段全部非法，跳过发送 -> 群 {group_id}")
+                    return
                 await bot.send_group_msg(group_id=int(group_id), message=raw_messages)
                 logger.info(f"WelcomePlugin: 发送消息成功 -> 群 {group_id}")
             elif hasattr(event, 'send'):
@@ -610,6 +621,7 @@ class WelcomePlugin(Star):
                 logger.warning("WelcomePlugin: 无法获取 bot 对象或 send 方法")
         except Exception as e:
             logger.error(f"WelcomePlugin: 发送消息失败: {e}")
+            logger.error(traceback.format_exc())
 
     async def _run_test(self, event: AstrMessageEvent, template_field: str, default_key: str, log_label: str, llm_prompt: str, llm_tone: str, resolver=None):
         """测试命令的公共实现：读取模板 -> LLM 生成（可选）-> 构建消息 -> 发送
