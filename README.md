@@ -10,6 +10,7 @@
 | **离群通知** | 成员主动退出群聊时，发送通知 |
 | **退群通知** | 成员被管理员移出群聊时，发送通知 |
 | **LLM 自动生成** | 使用 AI 模型自动生成欢迎/退群/被踢消息（可选） |
+| **全局配置** | 一次配置，所有群通用；群级配置可单独覆盖 |
 
 ### 模板变量
 
@@ -21,9 +22,15 @@
 | `{time}` | 事件发生时间 |
 | `{user_id}` | 成员的 QQ 号 |
 
-### 群组独立配置
+### 配置优先级
 
-每个群组可以独立设置是否启用、消息模板，互不干扰。
+配置分两层，群级配置优先于全局配置：
+
+1. **群级配置**（通过 `/welcome set`、`/welcome leave`、`/welcome kick` 设置）—— 该群开启后使用自己的模板
+2. **全局配置**（通过插件配置界面或 `/welcome global_*` 命令设置）—— 全局模式开启时，未单独配置的群使用全局模板
+3. 两者都未开启时不发送任何通知
+
+使用 `/welcome status` 可查看当前群实际生效的配置及其来源。
 
 ---
 
@@ -58,6 +65,18 @@
 | `/welcome kick <消息>` | 设置被踢通知（不填内容则禁用） |
 | `/welcome test_kick` | 测试当前被踢通知 |
 
+### 全局配置
+
+| 命令 | 说明 |
+|---|---|
+| `/welcome global` | 开启/关闭全局模式 |
+| `/welcome global_set <消息>` | 设置全局入群欢迎语 |
+| `/welcome global_leave <消息>` | 设置全局退群提示 |
+| `/welcome global_kick <消息>` | 设置全局被踢提示 |
+| `/welcome status` | 查看当前群生效的配置及来源 |
+
+也可以在 AstrBot 控制台的插件配置界面中直接设置这四项。
+
 ### LLM 配置
 
 | 命令 | 说明 |
@@ -90,11 +109,17 @@ git clone https://github.com/mjy1113451/welcome_group.git
   "default_message": "欢迎 {at} 加入本群！当前时间：{time}",
   "default_leave_message": "{user_id} 离开了本群。",
   "default_kick_message": "{user_id} 被移出了本群。",
+  "global_enabled": false,
+  "global_welcome_message": "欢迎 {at} 加入本群！当前时间：{time}",
+  "global_leave_message": "{user_id} 离开了本群。",
+  "global_kick_message": "{user_id} 被移出了本群。",
   "groups": {},
   "llm_enabled": false,
   "llm_provider_id": ""
 }
 ```
+
+`global_enabled` 为 `true` 时，未在 `groups` 中单独开启的群会使用 `global_*` 模板。
 
 `groups` 字段中每个群组可独立配置，例如：
 
